@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 interface SectionShellProps {
   index: string;
@@ -82,10 +82,14 @@ interface ShowcaseVideoProps {
   caption?: string;
 }
 
+/** Глобальное событие: один ролик «забирает» звук → остальные глохнут. */
+const AUDIO_CLAIM_EVENT = "showcase-audio-claim";
+
 /**
  * R2-referenced video tile. Never downloads — src is always an R2 URL passed
- * in from lib/videos.ts. Muted, looped, autoplay, playsInline (no audio per
- * the project video methodology).
+ * in from lib/videos.ts. Автозапуск без звука (политика браузеров). По клику
+ * ролик включает звук с плавным fade-in, а любой другой звучавший — глохнет.
+ * Звук всегда у одного ролика за раз — галерейная логика, не каша.
  */
 export function ShowcaseVideo({
   src,
@@ -95,13 +99,84 @@ export function ShowcaseVideo({
   // Вертикальные 9:16 ограничиваем по ширине и центрируем — иначе на всю
   // ширину контейнера они выходят гигантскими. Горизонтальные 16:9 — во всю ширину.
   const isVertical = aspect === "9/16";
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const fadeRef = useRef<number | null>(null);
+  const [muted, setMuted] = useState(true);
+  const id = useId();
+
+  /** Плавно меняет громкость от текущей к target за ms. */
+  function fadeVolume(target: number, ms: number, onDone?: () => void) {
+    const v = videoRef.current;
+    if (!v) return;
+    if (fadeRef.current) cancelAnimationFrame(fadeRef.current);
+    const from = v.volume;
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / ms);
+      v.volume = from + (target - from) * t;
+      if (t < 1) {
+        fadeRef.current = requestAnimationFrame(step);
+      } else {
+        fadeRef.current = null;
+        onDone?.();
+      }
+    };
+    fadeRef.current = requestAnimationFrame(step);
+  }
+
+  function enableSound() {
+    const v = videoRef.current;
+    if (!v) return;
+    // забрать звук — сказать остальным заглохнуть
+    window.dispatchEvent(new CustomEvent(AUDIO_CLAIM_EVENT, { detail: id }));
+    v.muted = false;
+    v.volume = 0;
+    v.play().catch(() => {});
+    fadeVolume(1, 500);
+    setMuted(false);
+  }
+
+  function disableSound() {
+    const v = videoRef.current;
+    if (!v) return;
+    fadeVolume(0, 350, () => {
+      if (videoRef.current) videoRef.current.muted = true;
+    });
+    setMuted(true);
+  }
+
+  function toggleSound() {
+    if (muted) enableSound();
+    else disableSound();
+  }
+
+  // слушаем, когда звук забрал другой ролик → глохнем
+  useEffect(() => {
+    function onClaim(e: Event) {
+      const claimedId = (e as CustomEvent<string>).detail;
+      if (claimedId !== id) {
+        const v = videoRef.current;
+        if (v && !v.muted) {
+          fadeVolume(0, 250, () => {
+            if (videoRef.current) videoRef.current.muted = true;
+          });
+          setMuted(true);
+        }
+      }
+    }
+    window.addEventListener(AUDIO_CLAIM_EVENT, onClaim);
+    return () => window.removeEventListener(AUDIO_CLAIM_EVENT, onClaim);
+  }, [id]);
+
   return (
     <figure
-      className={`group relative overflow-hidden rounded-sm border border-[#C9A961]/15 bg-black/40 ${
+      onClick={toggleSound}
+      className={`group relative cursor-pointer overflow-hidden rounded-sm border border-[#C9A961]/15 bg-black/40 ${
         isVertical ? "mx-auto w-full max-w-[400px]" : "w-full"
       }`}
     >
       <video
+        ref={videoRef}
         src={src}
         autoPlay
         muted
@@ -112,8 +187,34 @@ export function ShowcaseVideo({
         style={{ aspectRatio: aspect }}
       />
       <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/5" />
+
+      {/* Иконка-динамик — состояние звука, клик тоже переключает */}
+      <button
+        type="button"
+        aria-label={muted ? "Включить звук" : "Выключить звук"}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleSound();
+        }}
+        className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-[#F5F1E8] backdrop-blur-sm transition-colors hover:bg-black/70 active:scale-95"
+      >
+        {muted ? (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 5 6 9H2v6h4l5 4V5z" />
+            <line x1="23" y1="9" x2="17" y2="15" />
+            <line x1="17" y1="9" x2="23" y2="15" />
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 5 6 9H2v6h4l5 4V5z" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+          </svg>
+        )}
+      </button>
+
       {caption && (
-        <figcaption className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-5 py-4 text-xs uppercase tracking-[0.25em] text-[#F5F1E8]/70">
+        <figcaption className="pointer-events-none absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-5 py-4 text-xs uppercase tracking-[0.25em] text-[#F5F1E8]/70">
           {caption}
         </figcaption>
       )}

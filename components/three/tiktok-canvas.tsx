@@ -163,6 +163,26 @@ function TilesSphere({
   const tileNormalWorld = useRef<THREE.Vector3>(new THREE.Vector3());
   const toCamRef = useRef<THREE.Vector3>(new THREE.Vector3());
 
+  // ── Звук следует за фокусом ──────────────────────────────────────────
+  // Лента-логика: ближайшая к камере плитка-видео звучит, остальные молчат.
+  // Браузер требует жест пользователя → разблокируем аудио по первому клику.
+  const audioUnlocked = useRef(false);
+  const focusedVideoIdx = useRef(-1);
+  const audioCheck = useRef(0);
+  const camPosRef = useRef<THREE.Vector3>(new THREE.Vector3());
+
+  useEffect(() => {
+    const unlock = () => { audioUnlocked.current = true; };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("touchstart", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
   // Spring velocity refs for sphere rotation
   const sphereYawVel = useRef<SpringState>({ velocity: 0 });
   const spherePitchVel = useRef<SpringState>({ velocity: 0 });
@@ -220,6 +240,36 @@ function TilesSphere({
       spherePitchVel.current,
       3.5, 0.88, delta,
     );
+
+    // ── Звук следует за фокусом ──────────────────────────────────────────
+    // Раз в ~200мс пересчитываем, какое видео ближе всего к камере → оно «в фокусе».
+    audioCheck.current += delta;
+    if (audioUnlocked.current && audioCheck.current > 0.2) {
+      audioCheck.current = 0;
+      state.camera.getWorldPosition(camPosRef.current);
+      let best = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < tiles.length; i++) {
+        if (bundles[tiles[i].sourceIdx]?.type !== "video") continue;
+        tileWorldPos.current
+          .set(tiles[i].x, tiles[i].y, tiles[i].z)
+          .applyMatrix4(groupRef.current.matrixWorld);
+        const d = tileWorldPos.current.distanceTo(camPosRef.current);
+        if (d < bestDist) { bestDist = d; best = tiles[i].sourceIdx; }
+      }
+      focusedVideoIdx.current = best;
+    }
+
+    // Каждый кадр плавно ведём громкость к цели: фокус → 1, остальные → 0.
+    for (let i = 0; i < bundles.length; i++) {
+      const b = bundles[i];
+      if (b.type !== "video") continue;
+      const target = audioUnlocked.current && i === focusedVideoIdx.current ? 1 : 0;
+      if (target > 0 && b.video.muted) { b.video.muted = false; b.video.volume = 0; }
+      const nv = b.video.volume + (target - b.video.volume) * Math.min(1, delta * 4);
+      b.video.volume = nv;
+      if (target === 0 && nv < 0.02 && !b.video.muted) b.video.muted = true;
+    }
   });
 
   if (!bundles.length) return null;
