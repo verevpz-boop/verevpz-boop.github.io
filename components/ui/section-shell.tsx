@@ -124,11 +124,13 @@ export function ShowcaseVideo({
     fadeRef.current = requestAnimationFrame(step);
   }
 
-  function enableSound() {
+  /** Запустить ролик с начала со звуком; остальные при этом глохнут. */
+  function playFromStart() {
     const v = videoRef.current;
     if (!v) return;
     // забрать звук — сказать остальным заглохнуть
     window.dispatchEvent(new CustomEvent(AUDIO_CLAIM_EVENT, { detail: id }));
+    v.currentTime = 0; // старт заново по клику
     v.muted = false;
     v.volume = 0;
     v.play().catch(() => {});
@@ -136,41 +138,42 @@ export function ShowcaseVideo({
     setMuted(false);
   }
 
-  function disableSound() {
+  /** Заглушить этот ролик (immediate=true — мгновенно, без fade). */
+  function muteSelf(immediate = false) {
     const v = videoRef.current;
     if (!v) return;
-    fadeVolume(0, 350, () => {
-      if (videoRef.current) videoRef.current.muted = true;
-    });
+    if (immediate) {
+      if (fadeRef.current) cancelAnimationFrame(fadeRef.current);
+      v.volume = 0;
+      v.muted = true;
+    } else {
+      fadeVolume(0, 250, () => {
+        if (videoRef.current) videoRef.current.muted = true;
+      });
+    }
     setMuted(true);
   }
 
-  function toggleSound() {
-    if (muted) enableSound();
-    else disableSound();
+  /** Кнопка-динамик: выкл звук / вкл (с рестартом). */
+  function toggleSpeaker() {
+    if (muted) playFromStart();
+    else muteSelf();
   }
 
-  // слушаем, когда звук забрал другой ролик → глохнем
+  // слушаем, когда звук забрал другой ролик → ВСЕГДА глохнем (надёжно, без условий)
   useEffect(() => {
     function onClaim(e: Event) {
       const claimedId = (e as CustomEvent<string>).detail;
-      if (claimedId !== id) {
-        const v = videoRef.current;
-        if (v && !v.muted) {
-          fadeVolume(0, 250, () => {
-            if (videoRef.current) videoRef.current.muted = true;
-          });
-          setMuted(true);
-        }
-      }
+      if (claimedId !== id) muteSelf();
     }
     window.addEventListener(AUDIO_CLAIM_EVENT, onClaim);
     return () => window.removeEventListener(AUDIO_CLAIM_EVENT, onClaim);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   return (
     <figure
-      onClick={toggleSound}
+      onClick={playFromStart}
       className={`group relative cursor-pointer overflow-hidden rounded-sm border border-[#C9A961]/15 bg-black/40 ${
         isVertical ? "mx-auto w-full max-w-[400px]" : "w-full"
       }`}
@@ -194,7 +197,7 @@ export function ShowcaseVideo({
         aria-label={muted ? "Включить звук" : "Выключить звук"}
         onClick={(e) => {
           e.stopPropagation();
-          toggleSound();
+          toggleSpeaker();
         }}
         className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-[#F5F1E8] backdrop-blur-sm transition-colors hover:bg-black/70 active:scale-95"
       >

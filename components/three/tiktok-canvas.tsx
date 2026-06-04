@@ -31,7 +31,10 @@ function springStep(
  * play Pavel's real R2 brand films, distributed by the page→brand mapping:
  *   Master Dynamic / Venice → cinema, LIME → fashion, "с голосом" → dance.
  */
-type Source = { type: "video"; src: string } | { type: "image"; src: string };
+type Source =
+  | { type: "video"; src: string }
+  | { type: "image"; src: string }
+  | { type: "black" };
 
 const _videos: Source[] = [
   // Pavel's canonical R2 brand films (referenced, not hosted with the site)
@@ -53,19 +56,13 @@ const _videos: Source[] = [
     src: `/videos/tiktok/v${i + 1}.mp4`,
   })),
 ];
-const _photos: Source[] = Array.from({ length: 30 }, (_, i) => ({
-  type: "image" as const,
-  src: `/videos/tiktok/frames/p${i + 1}.jpg`,
-}));
-// Interleave: every 4th tile is a video, rest are photos — spread evenly
+
+// Только клипы (Pavel): статичные фото убраны. Пустые слоты — чёрные
+// заглушки, чтобы сфера оставалась полной; Pavel доввесит клипы позже.
+const SPHERE_TILES = 30;
 const SOURCES: Source[] = (() => {
-  const out: Source[] = [];
-  let vi = 0, pi = 0;
-  for (let i = 0; i < _videos.length + _photos.length; i++) {
-    if (i % 4 === 0 && vi < _videos.length) out.push(_videos[vi++]);
-    else if (pi < _photos.length) out.push(_photos[pi++]);
-    else if (vi < _videos.length) out.push(_videos[vi++]);
-  }
+  const out: Source[] = [..._videos];
+  while (out.length < SPHERE_TILES) out.push({ type: "black" as const });
   return out;
 })();
 
@@ -83,7 +80,8 @@ const SCROLL_PAGES = 4;
 /* ─── shared bundles — one entry per SOURCES item ─────────────────────── */
 type Bundle =
   | { type: "video"; video: HTMLVideoElement; texture: THREE.VideoTexture }
-  | { type: "image"; texture: THREE.Texture };
+  | { type: "image"; texture: THREE.Texture }
+  | { type: "black" };
 
 function useBundles(): Bundle[] {
   return useMemo(() => {
@@ -105,12 +103,15 @@ function useBundles(): Bundle[] {
         tex.magFilter = THREE.LinearFilter;
         tex.colorSpace = THREE.SRGBColorSpace;
         return { type: "video" as const, video: v, texture: tex };
-      } else {
+      } else if (s.type === "image") {
         const tex = loader.load(s.src);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.minFilter = THREE.LinearFilter;
         tex.magFilter = THREE.LinearFilter;
         return { type: "image" as const, texture: tex };
+      } else {
+        // чёрная заглушка — пустой слот под будущий клип
+        return { type: "black" as const };
       }
     });
   }, []);
@@ -187,17 +188,65 @@ function TilesSphere({
   const sphereYawVel = useRef<SpringState>({ velocity: 0 });
   const spherePitchVel = useRef<SpringState>({ velocity: 0 });
 
+  // ── Drag-вращение во все стороны (yaw + pitch) ───────────────────────
+  // Тащим шар мышью/пальцем: по горизонтали — поворот, по вертикали — наклон.
+  const dragging = useRef(false);
+  const lastX = useRef(0);
+  const lastY = useRef(0);
+  const dragYaw = useRef(0);
+  const dragPitch = useRef(0);
 
-  // Per-tile materials: video/photo on ALL faces, double-sided
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      // не перехватываем клики по ссылкам/кнопкам навигации
+      const el = e.target as HTMLElement | null;
+      if (el && el.closest("a,button")) return;
+      dragging.current = true;
+      lastX.current = e.clientX;
+      lastY.current = e.clientY;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging.current) return;
+      const dx = e.clientX - lastX.current;
+      const dy = e.clientY - lastY.current;
+      lastX.current = e.clientX;
+      lastY.current = e.clientY;
+      dragYaw.current += dx * 0.006;
+      dragPitch.current += dy * 0.006;
+      // ограничиваем наклон, чтобы шар не кувыркался через полюс
+      dragPitch.current = Math.max(-1.3, Math.min(1.3, dragPitch.current));
+    };
+    const onUp = () => { dragging.current = false; };
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
+
+
+  // Per-tile materials: video on ALL faces, double-sided. Чёрные заглушки — без текстуры.
   const tileMats = useMemo(() => {
     if (!bundles.length) return [];
-    return tiles.map((t, i) => {
-      const mat = new THREE.MeshBasicMaterial({
-        map: bundles[t.sourceIdx].texture,
+    return tiles.map((t) => {
+      const b = bundles[t.sourceIdx];
+      if (b.type === "black") {
+        return new THREE.MeshBasicMaterial({
+          color: 0x050505,
+          toneMapped: false,
+          side: THREE.DoubleSide,
+        });
+      }
+      return new THREE.MeshBasicMaterial({
+        map: b.texture,
         toneMapped: false,
         side: THREE.DoubleSide,
       });
-      return mat;
     });
   }, [bundles, tiles]);
 
@@ -223,20 +272,20 @@ function TilesSphere({
 
     if (prefersReducedMotion) return;
 
-    // Damped spring rotation (heavy, inertial sphere)
+    // Лёгкий авто-дрейф по горизонтали, когда не тащим — чтобы шар жил.
+    if (!dragging.current) dragYaw.current += delta * 0.06;
+
+    // Damped spring rotation (heavy, inertial sphere) — цель из drag по обеим осям.
     const scrollYaw = scrollOffset.current * Math.PI * 8;
-    const mouseYaw = state.mouse.x * 0.9;
     groupRef.current.rotation.y = springStep(
       groupRef.current.rotation.y,
-      scrollYaw + mouseYaw,
+      scrollYaw + dragYaw.current,
       sphereYawVel.current,
       3.5, 0.88, delta,
     );
-    const scrollPitch = Math.sin(scrollOffset.current * Math.PI * 3) * 0.35;
-    const mousePitch = -state.mouse.y * 0.4;
     groupRef.current.rotation.x = springStep(
       groupRef.current.rotation.x,
-      scrollPitch + mousePitch,
+      dragPitch.current,
       spherePitchVel.current,
       3.5, 0.88, delta,
     );
