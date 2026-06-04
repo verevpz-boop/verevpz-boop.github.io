@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --app --no-src-dir --import-alias \"@/*\" --eslint --use-npm --no-turbopack)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(taskkill /PID 66620 /F)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/)",
+      "PowerShell(Stop-Process -Id 66620 -Force; Start-Sleep -Seconds 2; $r = Invoke-WebRequest -Uri \"http://localhost:3001/\" -UseBasicParsing -ErrorAction SilentlyContinue; Write-Output \"Status: $\\($r.StatusCode\\)\")",
+      "Bash(npm run *)",
+      "PowerShell(Copy-Item \"D:\\\\pavel-site\\\\public\\\\textures\\\\earth-night.jpg.jpg\" \"D:\\\\pavel-site\\\\public\\\\textures\\\\earth-night-new.jpg\")",
+      "PowerShell(Rename-Item \"D:\\\\pavel-site\\\\public\\\\textures\\\\earth-night-new.jpg\" \"earth-night.jpg\")",
+      "PowerShell(Get-PSDrive E | Select-Object Used,Free,@{n='FreeGB';e={[math]::Round\\($_.Free/1GB,2\\)}},@{n='UsedGB';e={[math]::Round\\($_.Used/1GB,2\\)}}; Write-Output '---'; try { ollama --version } catch { Write-Output 'OLLAMA_NOT_INSTALLED' }; Write-Output '---'; Write-Output \"OLLAMA_MODELS=$env:OLLAMA_MODELS\"; Write-Output \"OLLAMA_HOST=$env:OLLAMA_HOST\")",
+      "PowerShell([Environment]::SetEnvironmentVariable\\('OLLAMA_MODELS','E:\\\\AI-System\\\\Ollama\\\\models','User'\\); [Environment]::SetEnvironmentVariable\\('OLLAMA_HOST','127.0.0.1:11434','User'\\); Write-Output 'SET:'; Write-Output \\('OLLAMA_MODELS=' + [Environment]::GetEnvironmentVariable\\('OLLAMA_MODELS','User'\\)\\); Write-Output \\('OLLAMA_HOST=' + [Environment]::GetEnvironmentVariable\\('OLLAMA_HOST','User'\\)\\))",
+      "Bash(tasklist)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -Method Head -UseBasicParsing; $r.Headers['Content-Length']; $r.BaseResponse.ResponseUri } catch { $_.Exception.Message })",
+      "PowerShell(winget search Ollama.Ollama --accept-source-agreements 2>&1)",
+      "Bash(netstat -ano)",
+      "Bash(ollama --version)",
+      "Bash(ollama list *)",
+      "PowerShell(Get-Process -Name \"OllamaSetup\",\"ollama\" -ErrorAction SilentlyContinue | Select-Object Name,Id,CPU; Write-Output '---'; Test-Path \"$env:LOCALAPPDATA\\\\Programs\\\\Ollama\\\\ollama.exe\"; Test-Path \"$env:LOCALAPPDATA\\\\Programs\\\\Ollama\"; Get-ChildItem \"$env:LOCALAPPDATA\\\\Programs\\\\Ollama\" -ErrorAction SilentlyContinue | Select-Object Name)",
+      "PowerShell($ollama = \"$env:LOCALAPPDATA\\\\Programs\\\\Ollama\\\\ollama.exe\"; Write-Output \"--- version ---\"; & $ollama --version; Write-Output \"--- env vars \\(user level\\) ---\"; Write-Output \"OLLAMA_MODELS=$\\([Environment]::GetEnvironmentVariable\\('OLLAMA_MODELS','User'\\)\\)\"; Write-Output \"OLLAMA_HOST=$\\([Environment]::GetEnvironmentVariable\\('OLLAMA_HOST','User'\\)\\)\"; Write-Output \"--- session env ---\"; Write-Output \"OLLAMA_MODELS_session=$env:OLLAMA_MODELS\"; Write-Output \"--- list ---\"; & $ollama list; Write-Output \"--- models dir ---\"; Get-ChildItem \"E:\\\\AI-System\\\\Ollama\\\\models\" -ErrorAction SilentlyContinue | Select-Object Name)",
+      "Bash(grep -v '^$')",
+      "Bash(ls \"C:\\\\Users\\\\ИИ Павел\\\\Desktop\\\\files \\(2\\).zip\")"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+# Cloudflare Worker config for the Signature Head LLM proxy.
+# Deploy: wrangler deploy  (after `wrangler secret put CEREBRAS_API_KEY`)
+name = "head-proxy"
+main = "head-proxy.js"
+compatibility_date = "2026-01-01"
+
+# CEREBRAS_API_KEY is set as a SECRET (not here), via:
+#   wrangler secret put CEREBRAS_API_KEY
