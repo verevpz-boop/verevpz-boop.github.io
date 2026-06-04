@@ -16,18 +16,18 @@ export default function GamingPage() {
     >
       <div className="mx-auto grid max-w-4xl gap-8 md:gap-12">
         <ShowcaseVideo
-          src={R2_VIDEOS.raidMasterfinal}
-          aspect="16/9"
-          caption="RAID — cinematic master film"
-        />
-        <ShowcaseVideo
           src={R2_VIDEOS.jimengWarriorsGaming}
           aspect="16/9"
           caption="Fantasy warriors — cinematic scene"
         />
         <ShowcaseVideo
+          src={R2_VIDEOS.raidMasterfinal}
+          aspect="9/16"
+          caption="RAID — cinematic master film"
+        />
+        <ShowcaseVideo
           src={R2_VIDEOS.smeh0424gaming}
-          aspect="16/9"
+          aspect="9/16"
           caption="Gaming — action sequence"
         />
       </div>

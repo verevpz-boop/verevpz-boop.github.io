@@ -16,33 +16,33 @@ export default function FashionPage() {
     >
       <div className="mx-auto grid max-w-4xl gap-8 md:gap-12">
         <ShowcaseVideo
-          src={R2_VIDEOS.lime}
-          aspect="16/9"
-          caption="LIME — campaign film"
-        />
-        <ShowcaseVideo
           src={R2_VIDEOS.calvinKlein}
           aspect="16/9"
           caption="Calvin Klein — fashion commercial"
         />
         <ShowcaseVideo
+          src={R2_VIDEOS.lime}
+          aspect="9/16"
+          caption="LIME — campaign film"
+        />
+        <ShowcaseVideo
           src={R2_VIDEOS.demonessaMaster}
-          aspect="16/9"
+          aspect="9/16"
           caption="Demonessa — fashion film"
         />
         <ShowcaseVideo
           src={R2_VIDEOS.incanto0404}
-          aspect="16/9"
+          aspect="9/16"
           caption="Incanto — swimwear campaign"
         />
         <ShowcaseVideo
           src={R2_VIDEOS.incantoCentr}
-          aspect="16/9"
+          aspect="9/16"
           caption="Incanto — studio showcase"
         />
         <ShowcaseVideo
           src={R2_VIDEOS.creationPolic4}
-          aspect="16/9"
+          aspect="9/16"
           caption="Creation — fashion lookbook"
         />
       </div>

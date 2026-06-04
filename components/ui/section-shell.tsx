@@ -92,8 +92,15 @@ export function ShowcaseVideo({
   aspect = "16/9",
   caption,
 }: ShowcaseVideoProps) {
+  // Вертикальные 9:16 ограничиваем по ширине и центрируем — иначе на всю
+  // ширину контейнера они выходят гигантскими. Горизонтальные 16:9 — во всю ширину.
+  const isVertical = aspect === "9/16";
   return (
-    <figure className="group relative overflow-hidden rounded-sm border border-[#C9A961]/15 bg-black/40">
+    <figure
+      className={`group relative overflow-hidden rounded-sm border border-[#C9A961]/15 bg-black/40 ${
+        isVertical ? "mx-auto w-full max-w-[400px]" : "w-full"
+      }`}
+    >
       <video
         src={src}
         autoPlay

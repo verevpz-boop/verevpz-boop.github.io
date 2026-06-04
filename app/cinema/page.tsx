@@ -21,24 +21,24 @@ export default function CinemaPage() {
           caption="Master Dynamic — cinematic product film"
         />
         <ShowcaseVideo
-          src={R2_VIDEOS.veneto}
-          aspect="16/9"
-          caption="Venice — cinematic travel"
-        />
-        <ShowcaseVideo
           src={R2_VIDEOS.mishanyaMaster}
           aspect="16/9"
           caption="Мишаня — cinematic short"
         />
         <ShowcaseVideo
+          src={R2_VIDEOS.jimengTokusatsu}
+          aspect="16/9"
+          caption="Tokusatsu — mecha hero transformation"
+        />
+        <ShowcaseVideo
           src={R2_VIDEOS.openartCinema}
-          aspect="9/16"
+          aspect="16/9"
           caption="Cinematic — AI scene"
         />
         <ShowcaseVideo
-          src={R2_VIDEOS.jimengTokusatsu}
+          src={R2_VIDEOS.veneto}
           aspect="9/16"
-          caption="Tokusatsu — mecha hero transformation"
+          caption="Venice — cinematic travel"
         />
       </div>
     </SectionShell>
