@@ -16,6 +16,11 @@ export default function CinemaPage() {
     >
       <div className="mx-auto grid max-w-4xl gap-8 md:gap-12">
         <ShowcaseVideo
+          src={R2_VIDEOS.reign}
+          aspect="16/9"
+          caption="Reign — cinematic epic"
+        />
+        <ShowcaseVideo
           src={R2_VIDEOS.masterDynamic}
           aspect="16/9"
           caption="Master Dynamic — cinematic product film"

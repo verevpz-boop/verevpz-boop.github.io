@@ -33,6 +33,7 @@ export const R2_VIDEOS = {
   incantoStudioFashion: r2("fashion/incanto_studio_fashion.mp4"),
 
   /* ── Cinema ─────────────────────────────────────────────────────────── */
+  reign: r2("cinema/reign.mp4"),
   mishanyaMaster: r2("cinema/mishanya_master.mp4"),
   jimengTokusatsu: r2("cinema/jimeng_tokusatsu_01.mp4"),
   jimengWarriors: r2("cinema/jimeng_warriors_01.mp4"),
