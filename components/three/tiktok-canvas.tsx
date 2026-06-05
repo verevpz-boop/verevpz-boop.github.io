@@ -269,6 +269,23 @@ function TilesSphere({
     return () => timers.forEach(clearTimeout);
   }, [bundles]);
 
+  // Надёжность: если вкладка грузилась в фоне (autoplay подавлен) — перезапускаем
+  // видео при возврате видимости и по первому жесту, иначе плитки чёрные.
+  useEffect(() => {
+    const replay = () => {
+      if (document.visibilityState !== "visible") return;
+      bundles.forEach((b) => {
+        if (b.type === "video" && b.video.paused) b.video.play().catch(() => {});
+      });
+    };
+    document.addEventListener("visibilitychange", replay);
+    window.addEventListener("pointerdown", replay);
+    return () => {
+      document.removeEventListener("visibilitychange", replay);
+      window.removeEventListener("pointerdown", replay);
+    };
+  }, [bundles]);
+
   useFrame((state, delta) => {
     if (!groupRef.current) return;
 
