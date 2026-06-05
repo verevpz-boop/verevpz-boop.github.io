@@ -77,6 +77,10 @@ const TILE_DEPTH = 0.045;                       // card thickness
 const TILE_COUNT = SOURCES.length;
 const SCROLL_PAGES = 4;
 
+// Мировые оси для трекбол-вращения (фиксированы относительно экрана).
+const WORLD_X = new THREE.Vector3(1, 0, 0);
+const WORLD_Y = new THREE.Vector3(0, 1, 0);
+
 /* ─── shared bundles — one entry per SOURCES item ─────────────────────── */
 type Bundle =
   | { type: "video"; video: HTMLVideoElement; texture: THREE.VideoTexture }
@@ -184,37 +188,35 @@ function TilesSphere({
     };
   }, []);
 
-  // Spring velocity refs for sphere rotation
-  const sphereYawVel = useRef<SpringState>({ velocity: 0 });
-  const spherePitchVel = useRef<SpringState>({ velocity: 0 });
-
-  // ── Drag-вращение во все стороны (yaw + pitch) ───────────────────────
-  // Тащим шар мышью/пальцем: по горизонтали — поворот, по вертикали — наклон.
+  // ── Трекбол: настоящее вращение во все стороны (кватернионы) ──────────
+  // Каждое движение мыши вращает шар вокруг МИРОВЫХ осей (premultiply):
+  // по горизонтали → вокруг мировой Y, по вертикали → вокруг мировой X.
+  // Так нет gimbal-lock и «блина по часовой» — шар честно кувыркается.
   const dragging = useRef(false);
   const lastX = useRef(0);
   const lastY = useRef(0);
-  const dragYaw = useRef(0);
-  const dragPitch = useRef(0);
+  const targetQuat = useRef(new THREE.Quaternion());
+  const incQuat = useRef(new THREE.Quaternion());
 
   useEffect(() => {
+    const applyDrag = (dx: number, dy: number) => {
+      const qy = incQuat.current.setFromAxisAngle(WORLD_Y, dx * 0.005);
+      targetQuat.current.premultiply(qy);
+      const qx = incQuat.current.setFromAxisAngle(WORLD_X, dy * 0.005);
+      targetQuat.current.premultiply(qx);
+    };
     const onDown = (e: PointerEvent) => {
-      // не перехватываем клики по ссылкам/кнопкам навигации
       const el = e.target as HTMLElement | null;
-      if (el && el.closest("a,button")) return;
+      if (el && el.closest("a,button")) return; // не мешаем навигации
       dragging.current = true;
       lastX.current = e.clientX;
       lastY.current = e.clientY;
     };
     const onMove = (e: PointerEvent) => {
       if (!dragging.current) return;
-      const dx = e.clientX - lastX.current;
-      const dy = e.clientY - lastY.current;
+      applyDrag(e.clientX - lastX.current, e.clientY - lastY.current);
       lastX.current = e.clientX;
       lastY.current = e.clientY;
-      dragYaw.current += dx * 0.006;
-      dragPitch.current += dy * 0.006;
-      // ограничиваем наклон, чтобы шар не кувыркался через полюс
-      dragPitch.current = Math.max(-1.3, Math.min(1.3, dragPitch.current));
     };
     const onUp = () => { dragging.current = false; };
     window.addEventListener("pointerdown", onDown);
@@ -272,23 +274,14 @@ function TilesSphere({
 
     if (prefersReducedMotion) return;
 
-    // Лёгкий авто-дрейф по горизонтали, когда не тащим — чтобы шар жил.
-    if (!dragging.current) dragYaw.current += delta * 0.06;
+    // Лёгкий авто-дрейф вокруг мировой Y, когда не тащим — чтобы шар жил.
+    if (!dragging.current) {
+      const drift = incQuat.current.setFromAxisAngle(WORLD_Y, delta * 0.06);
+      targetQuat.current.premultiply(drift);
+    }
 
-    // Damped spring rotation (heavy, inertial sphere) — цель из drag по обеим осям.
-    const scrollYaw = scrollOffset.current * Math.PI * 8;
-    groupRef.current.rotation.y = springStep(
-      groupRef.current.rotation.y,
-      scrollYaw + dragYaw.current,
-      sphereYawVel.current,
-      3.5, 0.88, delta,
-    );
-    groupRef.current.rotation.x = springStep(
-      groupRef.current.rotation.x,
-      dragPitch.current,
-      spherePitchVel.current,
-      3.5, 0.88, delta,
-    );
+    // Инерционно подтягиваем ориентацию шара к целевому кватерниону (трекбол).
+    groupRef.current.quaternion.slerp(targetQuat.current, Math.min(1, delta * 6));
 
     // ── Звук следует за фокусом ──────────────────────────────────────────
     // Раз в ~200мс пересчитываем, какое видео ближе всего к камере → оно «в фокусе».

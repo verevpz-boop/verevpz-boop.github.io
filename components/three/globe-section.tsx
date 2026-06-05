@@ -9,7 +9,8 @@ const SECTIONS = [
   { label: "Cinema",  href: "/cinema"  },
   { label: "Gaming",  href: "/gaming"  },
   { label: "AI-Bots", href: "/ai-bots" },
-  { label: "Business", href: "/business" },
+  { label: "TikTok",  href: "/tiktok"  },
+  { label: "Business", href: "/business" }, // Business всегда последним
 ];
 
 const GlobeCanvasDynamic = dynamic(
