@@ -155,7 +155,9 @@ export function ShowcaseVideo({
     const start = performance.now();
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / ms);
-      v.volume = from + (target - from) * t;
+      // Clamp to [0,1] — float drift (e.g. 1.002) throws IndexSizeError and
+      // kills the page. (Same gotcha logged in SITE_DECISIONS for tiktok ramp.)
+      v.volume = Math.max(0, Math.min(1, from + (target - from) * t));
       if (t < 1) {
         fadeRef.current = requestAnimationFrame(step);
       } else {
