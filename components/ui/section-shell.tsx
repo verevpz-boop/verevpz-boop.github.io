@@ -127,6 +127,25 @@ export function ShowcaseVideo({
     return () => io.disconnect();
   }, []);
 
+  // 🔴 При уходе со страницы (размонтировании) — глушим и останавливаем видео,
+  // иначе браузер тянет звук и декод старой страницы (музыка «лезет», тормоза).
+  useEffect(() => {
+    const v = videoRef.current;
+    return () => {
+      if (fadeRef.current) cancelAnimationFrame(fadeRef.current);
+      if (v) {
+        try {
+          v.pause();
+          v.muted = true;
+          v.removeAttribute("src");
+          v.load();
+        } catch {
+          /* noop */
+        }
+      }
+    };
+  }, []);
+
   /** Плавно меняет громкость от текущей к target за ms. */
   function fadeVolume(target: number, ms: number, onDone?: () => void) {
     const v = videoRef.current;

@@ -281,6 +281,25 @@ function TilesSphere({
     };
   }, [bundles]);
 
+  // 🔴 При уходе со страницы — глушим, останавливаем и освобождаем ВСЕ видео
+  // сферы (иначе декод+звук TikTok тянутся на других страницах → тормоза/музыка).
+  useEffect(() => {
+    return () => {
+      bundles.forEach((b) => {
+        if (b.type === "video") {
+          try {
+            b.video.pause();
+            b.video.muted = true;
+            b.video.removeAttribute("src");
+            b.video.load();
+          } catch {
+            /* noop */
+          }
+        }
+      });
+    };
+  }, [bundles]);
+
   useFrame((state, delta) => {
     if (!groupRef.current) return;
 
