@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useGLTF } from "@react-three/drei";
+import { useGLTF, Environment } from "@react-three/drei";
 import * as THREE from "three";
 import { R2_VIDEOS } from "@/lib/videos";
 
@@ -274,13 +274,9 @@ function TilesSphere({
 
     if (prefersReducedMotion) return;
 
-    // Лёгкий авто-дрейф вокруг мировой Y, когда не тащим — чтобы шар жил.
-    if (!dragging.current) {
-      const drift = incQuat.current.setFromAxisAngle(WORLD_Y, delta * 0.06);
-      targetQuat.current.premultiply(drift);
-    }
-
-    // Инерционно подтягиваем ориентацию шара к целевому кватерниону (трекбол).
+    // Без авто-вращения: шар стоит, где оставил — можно навести на любую плитку,
+    // и она попадёт в фокус (ближайшая к камере звучит). Двигается только от drag.
+    // Инерционно подтягиваем ориентацию к целевому кватерниону (трекбол, обе оси).
     groupRef.current.quaternion.slerp(targetQuat.current, Math.min(1, delta * 6));
 
     // ── Звук следует за фокусом ──────────────────────────────────────────
@@ -559,8 +555,11 @@ function Scene({ scrollOffset }: { scrollOffset: React.MutableRefObject<number> 
       <ambientLight intensity={0.35} />
       <directionalLight position={[5, 5, 5]} intensity={1.4} color="#fff5dc" />
       <directionalLight position={[-4, -2, -3]} intensity={0.5} color="#88aaff" />
+      {/* studio HDR — хром мишки бликует как у углового маскота */}
+      <Suspense fallback={null}>
+        <Environment preset="studio" />
+      </Suspense>
       <BearBrickCenter />
-      <CinemaScreen />
       <TilesSphere scrollOffset={scrollOffset} />
       <CameraRig />
     </>
