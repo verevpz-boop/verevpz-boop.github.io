@@ -308,7 +308,8 @@ function TilesSphere({
       if (b.type !== "video") continue;
       const target = audioUnlocked.current && i === focusedVideoIdx.current ? 1 : 0;
       if (target > 0 && b.video.muted) { b.video.muted = false; b.video.volume = 0; }
-      const nv = b.video.volume + (target - b.video.volume) * Math.min(1, delta * 4);
+      // зажимаем в [0,1] — иначе overshoot бросает IndexSizeError и роняет render-loop
+      const nv = Math.max(0, Math.min(1, b.video.volume + (target - b.video.volume) * Math.min(1, delta * 4)));
       b.video.volume = nv;
       if (target === 0 && nv < 0.02 && !b.video.muted) b.video.muted = true;
     }
