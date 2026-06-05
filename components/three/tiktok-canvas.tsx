@@ -1,7 +1,7 @@
 "use client";
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useGLTF, Environment } from "@react-three/drei";
+import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { R2_VIDEOS } from "@/lib/videos";
 
@@ -388,7 +388,18 @@ function BearBrickCenter() {
       if (!(child instanceof THREE.Mesh)) return;
       const name = (child.name ?? "").toLowerCase();
       const isDark = name.includes("body") || name.includes("torso") || name.includes("chest") || name.includes("upper");
-      child.material = (isDark ? _darkMat : _chromeMat).clone();
+      if (isDark) {
+        child.material = _darkMat.clone();
+      } else {
+        // Хром без HDR-окружения: умеренный металл + лёгкий emissive, чтобы
+        // мишка бликовал от ламп сцены, а не уходил в чёрное (CDN-Environment
+        // флапал в РФ и ронял весь Canvas — убран).
+        const m = _chromeMat.clone();
+        m.metalness = 0.55;
+        m.roughness = 0.18;
+        m.emissive = new THREE.Color("#2a2a2a");
+        child.material = m;
+      }
       child.castShadow = false;
     });
   }, [cloned]);
@@ -572,10 +583,6 @@ function Scene({ scrollOffset }: { scrollOffset: React.MutableRefObject<number> 
       <ambientLight intensity={0.35} />
       <directionalLight position={[5, 5, 5]} intensity={1.4} color="#fff5dc" />
       <directionalLight position={[-4, -2, -3]} intensity={0.5} color="#88aaff" />
-      {/* studio HDR — хром мишки бликует как у углового маскота */}
-      <Suspense fallback={null}>
-        <Environment preset="studio" />
-      </Suspense>
       <BearBrickCenter />
       <TilesSphere scrollOffset={scrollOffset} />
       <CameraRig />
