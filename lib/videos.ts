@@ -55,3 +55,26 @@ export const R2_VIDEOS = {
 } as const;
 
 export type R2VideoKey = keyof typeof R2_VIDEOS;
+
+/**
+ * Постеры (первый кадр) для видео разделов — лежат в /public/posters.
+ * Показываются, пока видео грузится: вместо чёрного поля всегда виден кадр.
+ * Мелкие JPG (≈16–140 КБ) — на нагрузку не влияют.
+ */
+export const POSTERS = {
+  calvinKlein: "/posters/calvin_klein.jpg",
+  lime: "/posters/lime.jpg",
+  demonessaMaster: "/posters/demonessa_master.jpg",
+  incanto0404: "/posters/incanto_0404.jpg",
+  incantoCentr: "/posters/incanto_centr.jpg",
+  creationPolic4: "/posters/creation_polic4.jpg",
+  reign: "/posters/reign.jpg",
+  masterDynamic: "/posters/master_dynamic.jpg",
+  mishanyaMaster: "/posters/mishanya_master.jpg",
+  jimengTokusatsu: "/posters/jimeng_tokusatsu.jpg",
+  openartCinema: "/posters/openart_cinema.jpg",
+  veneto: "/posters/veneto.jpg",
+  jimengWarriorsGaming: "/posters/jimeng_warriors.jpg",
+  raidMasterfinal: "/posters/raid_masterfinal.jpg",
+  smeh0424gaming: "/posters/smeh_0424.jpg",
+} as const;

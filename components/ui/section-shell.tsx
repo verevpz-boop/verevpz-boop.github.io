@@ -80,6 +80,8 @@ interface ShowcaseVideoProps {
   /** "16/9" landscape or "9/16" vertical */
   aspect?: "16/9" | "9/16";
   caption?: string;
+  /** Постер (первый кадр) — виден, пока видео грузится: вместо чёрного поля. */
+  poster?: string;
 }
 
 /** Глобальное событие: один ролик «забирает» звук → остальные глохнут. */
@@ -95,14 +97,35 @@ export function ShowcaseVideo({
   src,
   aspect = "16/9",
   caption,
+  poster,
 }: ShowcaseVideoProps) {
   // Вертикальные 9:16 ограничиваем по ширине и центрируем — иначе на всю
   // ширину контейнера они выходят гигантскими. Горизонтальные 16:9 — во всю ширину.
   const isVertical = aspect === "9/16";
   const videoRef = useRef<HTMLVideoElement>(null);
+  const figureRef = useRef<HTMLElement>(null);
   const fadeRef = useRef<number | null>(null);
   const [muted, setMuted] = useState(true);
   const id = useId();
+
+  // Играет только то, что на экране: видео за кадром на паузе (экономит CPU и
+  // трафик), в зоне видимости — играет. Зацикленное видео не уходит в чёрное.
+  useEffect(() => {
+    const v = videoRef.current;
+    const fig = figureRef.current;
+    if (!v || !fig) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) v.play().catch(() => {});
+          else v.pause();
+        }
+      },
+      { threshold: 0.15 },
+    );
+    io.observe(fig);
+    return () => io.disconnect();
+  }, []);
 
   /** Плавно меняет громкость от текущей к target за ms. */
   function fadeVolume(target: number, ms: number, onDone?: () => void) {
@@ -173,6 +196,7 @@ export function ShowcaseVideo({
 
   return (
     <figure
+      ref={figureRef}
       onClick={playFromStart}
       className={`group relative cursor-pointer overflow-hidden rounded-sm border border-[#C9A961]/15 bg-black/40 ${
         isVertical ? "mx-auto w-full max-w-[400px]" : "w-full"
@@ -181,6 +205,7 @@ export function ShowcaseVideo({
       <video
         ref={videoRef}
         src={src}
+        poster={poster}
         autoPlay
         muted
         loop
