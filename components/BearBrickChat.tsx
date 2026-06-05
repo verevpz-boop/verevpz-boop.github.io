@@ -6,6 +6,48 @@ const BRIDGE_URL = "http://localhost:5680/bearbrick";
 
 type Message = { role: "user" | "bear"; text: string };
 
+/**
+ * Клиентский FAQ-фоллбэк. Локальный мост (localhost:5680) доступен только на
+ * машине Pavel'а и блокируется как mixed-content на HTTPS-проде — поэтому для
+ * посетителей мишка отвечает сам, из заготовок про разделы сайта.
+ */
+function localAnswer(raw: string): string {
+  const q = raw.toLowerCase();
+  const has = (...ws: string[]) => ws.some((w) => q.includes(w));
+
+  if (has("привет", "здравств", "хай", "hello", "hi ", "ку ")) {
+    return "Привет! Я BearBrick, маскот Pavel Zverev. Спрашивай про разделы: Fashion, Cinema, Gaming, TikTok, AI-Bots — или про заказ.";
+  }
+  if (has("умеешь", "можешь", "помоч", "что ты", "кто ты", "о чём", "о чем")) {
+    return "Я помогу сориентироваться по портфолио Pavel'а. Разделы: Fashion (мода), Cinema (кино), Gaming (3D/фэнтези), TikTok (вертикальные клипы), AI-Bots, Business. Что показать?";
+  }
+  if (has("fashion", "фэшн", "фэшен", "мода", "одежда", "бренд")) {
+    return "Fashion — AI-визуалы для моды и бьюти: Calvin Klein, LIME, Incanto, Demonessa. Открой раздел Fashion в меню.";
+  }
+  if (has("cinema", "синема", "кино", "фильм")) {
+    return "Cinema — кинематографичные ролики: Reign, Master Dynamic, Мишаня, Венеция. Загляни в раздел Cinema.";
+  }
+  if (has("gaming", "гейм", "игр", "3d", "фэнтез", "фентез")) {
+    return "Gaming — 3D-персонажи, sci-fi и фэнтези: Reign, бои воинов, экшн-сцены. Раздел Gaming.";
+  }
+  if (has("tiktok", "тикток", "клип", "вертикал", "reels", "рилс")) {
+    return "TikTok — вертикальные клипы 9:16: танцы, юмор, тренды. На странице TikTok можно покрутить шар с роликами.";
+  }
+  if (has("ai-bot", "ai bot", "аи-бот", "бот", "ассистент", "ии")) {
+    return "AI-Bots — AI-ассистенты и боты под задачи бизнеса. Подробности — у Pavel'а в Telegram @Pavel4417.";
+  }
+  if (has("business", "бизнес", "тариф", "услуг")) {
+    return "Business — тарифы и форматы работы. Лучше обсудить детали напрямую: Telegram @Pavel4417.";
+  }
+  if (has("заказ", "цена", "стоит", "стоимость", "сколько", "купить", "связать", "контакт", "написать")) {
+    return "По заказам и ценам пиши Pavel'у в Telegram: @Pavel4417 — ответит лично.";
+  }
+  if (has("pavel", "павел", "зверев", "кто такой", "автор")) {
+    return "Pavel Zverev — AI-креатор с 27 годами на ТВ (ВГТРК). Делает рекламные и кинематографичные AI-ролики. Telegram: @Pavel4417.";
+  }
+  return "Я расскажу про разделы сайта: Fashion, Cinema, Gaming, TikTok, AI-Bots, Business. Спроси про любой — или напиши Pavel'у в Telegram @Pavel4417.";
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -38,21 +80,24 @@ export function BearBrickChat({ open, onClose }: Props) {
     setMessages((m) => [...m, { role: "user", text }]);
     setLoading(true);
     try {
+      // Таймаут, чтобы не висеть на «думаю…», если моста нет (прод/HTTPS).
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
       const res = await fetch(BRIDGE_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
+        signal: ctrl.signal,
       });
+      clearTimeout(timer);
       const data = await res.json();
       setMessages((m) => [
         ...m,
-        { role: "bear", text: data.reply || "Хмм, не нашёл ответа. Спроси ещё раз?" },
+        { role: "bear", text: data.reply || localAnswer(text) },
       ]);
-    } catch (e) {
-      setMessages((m) => [
-        ...m,
-        { role: "bear", text: "Не могу до сервера дотянуться. Попробуй позже или напиши @Pavel4417." },
-      ]);
+    } catch {
+      // Мост недоступен — отвечаем сами из клиентского FAQ.
+      setMessages((m) => [...m, { role: "bear", text: localAnswer(text) }]);
     } finally {
       setLoading(false);
     }
