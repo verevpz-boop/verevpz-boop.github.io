@@ -47,6 +47,10 @@ const _videos: Source[] = [
   { type: "video" as const, src: R2_VIDEOS.face01 },
   { type: "video" as const, src: R2_VIDEOS.openartTiktok },
   { type: "video" as const, src: R2_VIDEOS.creationPolic4Tiktok },
+  { type: "video" as const, src: R2_VIDEOS.golos },
+  { type: "video" as const, src: R2_VIDEOS.export0514 },
+  { type: "video" as const, src: R2_VIDEOS.v3 },
+  { type: "video" as const, src: R2_VIDEOS.materialWoman },
 ];
 
 // Только клипы tiktok/ (Pavel): фото и чужие категории убраны. Пара чёрных

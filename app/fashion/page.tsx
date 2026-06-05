@@ -51,6 +51,18 @@ export default function FashionPage() {
           aspect="9/16"
           caption="Creation — fashion lookbook"
         />
+        <ShowcaseVideo
+          src={R2_VIDEOS.materialWoman}
+          poster={POSTERS.materialWoman}
+          aspect="16/9"
+          caption="Material Woman — fashion film"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.smeh0403}
+          poster={POSTERS.smeh0403}
+          aspect="9/16"
+          caption="Editorial — fashion motion"
+        />
       </div>
     </SectionShell>
   );

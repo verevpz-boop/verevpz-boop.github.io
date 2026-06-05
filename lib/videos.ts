@@ -31,6 +31,8 @@ export const R2_VIDEOS = {
   incanto0404: r2("fashion/incanto_0404.mp4"),
   incantoCentr: r2("fashion/incanto_centr.mp4"),
   incantoStudioFashion: r2("fashion/incanto_studio_fashion.mp4"),
+  materialWoman: r2("fashion/material-woman.mp4"), // двойное назначение: Fashion + TikTok
+  smeh0403: r2("fashion/smeh-0403-3.mp4"),
 
   /* ── Cinema ─────────────────────────────────────────────────────────── */
   reign: r2("cinema/reign.mp4"),
@@ -53,6 +55,10 @@ export const R2_VIDEOS = {
   face01: r2("tiktok/face_01.mp4"),
   openartTiktok: r2("tiktok/openart_tiktok_01.mp4"),
   creationPolic4Tiktok: r2("tiktok/creation_polic4.mp4"),
+  golos: r2("tiktok/golos.mp4"),
+  export0514: r2("tiktok/export-0514-2.mp4"),
+  v3: r2("tiktok/v3.mp4"),
+  racingSpeeders: r2("tiktok/racing-speeders.mp4"), // «смех→TikTok» (ждёт подтверждения Pavel)
 } as const;
 
 export type R2VideoKey = keyof typeof R2_VIDEOS;
@@ -78,4 +84,9 @@ export const POSTERS = {
   jimengWarriorsGaming: "/posters/jimeng_warriors.jpg",
   raidMasterfinal: "/posters/raid_masterfinal.jpg",
   smeh0424gaming: "/posters/smeh_0424.jpg",
+  materialWoman: "/posters/material_woman.jpg",
+  smeh0403: "/posters/smeh_0403.jpg",
+  golos: "/posters/golos.jpg",
+  export0514: "/posters/export_0514.jpg",
+  v3: "/posters/v3.jpg",
 } as const;
