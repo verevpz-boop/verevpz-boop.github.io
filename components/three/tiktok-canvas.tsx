@@ -167,8 +167,6 @@ function TilesSphere({
   const tileWorldPos = useRef<THREE.Vector3>(new THREE.Vector3());
   const tileNormalWorld = useRef<THREE.Vector3>(new THREE.Vector3());
   const toCamRef = useRef<THREE.Vector3>(new THREE.Vector3());
-  // Рефы плиток — для билборда (каждая всегда смотрит на камеру строго вертикально).
-  const tileRefs = useRef<(THREE.Group | null)[]>([]);
 
   // ── Звук следует за фокусом ──────────────────────────────────────────
   // Лента-логика: ближайшая к камере плитка-видео звучит, остальные молчат.
@@ -190,22 +188,25 @@ function TilesSphere({
     };
   }, []);
 
-  // ── Трекбол: настоящее вращение во все стороны (кватернионы) ──────────
-  // Каждое движение мыши вращает шар вокруг МИРОВЫХ осей (premultiply):
-  // по горизонтали → вокруг мировой Y, по вертикали → вокруг мировой X.
-  // Так нет gimbal-lock и «блина по часовой» — шар честно кувыркается.
+  // ── Глобус: yaw (вокруг мировой Y) + pitch (вокруг мировой X), БЕЗ roll ──
+  // Копим два угла из drag и каждый кадр пересобираем ориентацию = pitch*yaw.
+  // Без roll → фронтальная карточка всегда строго вертикальна, боковые
+  // наклонены перспективой сферы. Pitch ограничиваем, чтобы не кувыркаться.
   const dragging = useRef(false);
   const lastX = useRef(0);
   const lastY = useRef(0);
+  const dragYaw = useRef(0);
+  const dragPitch = useRef(0);
   const targetQuat = useRef(new THREE.Quaternion());
-  const incQuat = useRef(new THREE.Quaternion());
+  const qYawRef = useRef(new THREE.Quaternion());
+  const qPitchRef = useRef(new THREE.Quaternion());
 
   useEffect(() => {
     const applyDrag = (dx: number, dy: number) => {
-      const qy = incQuat.current.setFromAxisAngle(WORLD_Y, dx * 0.005);
-      targetQuat.current.premultiply(qy);
-      const qx = incQuat.current.setFromAxisAngle(WORLD_X, dy * 0.005);
-      targetQuat.current.premultiply(qx);
+      dragYaw.current += dx * 0.005;
+      dragPitch.current += dy * 0.005;
+      // не даём перевернуть шар через полюс (фронт остаётся вертикальным)
+      dragPitch.current = Math.max(-1.45, Math.min(1.45, dragPitch.current));
     };
     const onDown = (e: PointerEvent) => {
       const el = e.target as HTMLElement | null;
@@ -295,17 +296,12 @@ function TilesSphere({
 
     // Без авто-вращения: шар стоит, где оставил — можно навести на любую плитку,
     // и она попадёт в фокус (ближайшая к камере звучит). Двигается только от drag.
-    // Инерционно подтягиваем ориентацию к целевому кватерниону (трекбол, обе оси).
+    // Цель = pitch * yaw (без roll). Боковые карточки наклонены сферой,
+    // фронтальная — строго вертикальна. Инерционно подтягиваем ориентацию.
+    qYawRef.current.setFromAxisAngle(WORLD_Y, dragYaw.current);
+    qPitchRef.current.setFromAxisAngle(WORLD_X, dragPitch.current);
+    targetQuat.current.copy(qPitchRef.current).multiply(qYawRef.current);
     groupRef.current.quaternion.slerp(targetQuat.current, Math.min(1, delta * 6));
-
-    // ── Билборд: плитки всегда смотрят на камеру СТРОГО вертикально ───────
-    // Шар крутит только их позиции, а сами плитки не заваливаются (up = мир Y).
-    groupRef.current.updateMatrixWorld(true);
-    state.camera.getWorldPosition(camPosRef.current);
-    for (let i = 0; i < tileRefs.current.length; i++) {
-      const tr = tileRefs.current[i];
-      if (tr) tr.lookAt(camPosRef.current);
-    }
 
     // ── Звук следует за фокусом ──────────────────────────────────────────
     // Раз в ~200мс пересчитываем, какое видео ближе всего к камере → оно «в фокусе».
@@ -349,7 +345,11 @@ function TilesSphere({
     <group ref={groupRef}>
       {tiles.map((t, i) => (
         <group key={i} position={[t.x, t.y, t.z]}
-          ref={(obj: THREE.Group | null) => { tileRefs.current[i] = obj; }}
+          ref={(obj: THREE.Group | null) => {
+            // Радиально к центру — карточки лежат на сфере (боковые наклонены
+            // перспективой, фронтальная вертикальна, т.к. шар крутится без roll).
+            if (obj) obj.lookAt(0, 0, 0);
+          }}
         >
           <mesh geometry={geometry} material={tileMats[i]} />
           <lineSegments geometry={edgesGeo} material={edgeLineMat} />
