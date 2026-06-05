@@ -222,8 +222,8 @@ const ARM_GLB = "/models/robot-arm.glb";
 useGLTF.preload(ARM_GLB);
 
 /* Fast-tune posing — adjust after screenshot, no logic changes needed. */
-const ARM_FIT_HEIGHT = 5.6;
-const ARM_POS = new THREE.Vector3(2.5, -2.8, 0.4);
+const ARM_FIT_HEIGHT = 3.4;
+const ARM_POS = new THREE.Vector3(3.4, -1.9, 0.2);
 const ARM_EULER: [number, number, number] = [0, 0, 0];
 
 /* Joint travel (radians) relative to the model's imported rest pose */
@@ -301,7 +301,7 @@ function RoboticArm() {
     fitted.current = false;
   }, [scene]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const r = rig.current;
     const g = root.current;
     if (!g || !r.ready) return;
@@ -392,11 +392,17 @@ function RoboticArm() {
       setRel(r.j2, "x", PRESENT.j2);
       setRel(r.j3, "x", PRESENT.j3);
     } else {
-      // greedy cursor follow (вжу-вжу)
-      setRel(r.baseY, "y", mouseNDC.x * BASE_YAW_RANGE);
-      setRel(r.j1, "x", (reach - 0.4) * J1_RANGE);
-      setRel(r.j2, "x", (0.5 - reach) * J2_RANGE);
-      setRel(r.j3, "x", (reach - 0.5) * J3_RANGE);
+      // Всегда живой: непрерывная серво-качка (sin по времени) + реакция на курсор
+      // сверху. Так рука двигается даже когда мышь неподвижна.
+      const t = state.clock.elapsedTime;
+      const idleY = Math.sin(t * 0.45) * 0.5;
+      const idleJ1 = Math.sin(t * 0.4 + 0.6) * 0.22;
+      const idleJ2 = Math.sin(t * 0.5 + 1.2) * 0.26;
+      const idleJ3 = Math.sin(t * 0.65 + 0.3) * 0.18;
+      setRel(r.baseY, "y", idleY + mouseNDC.x * BASE_YAW_RANGE * 0.5);
+      setRel(r.j1, "x", idleJ1 + (reach - 0.4) * J1_RANGE * 0.5);
+      setRel(r.j2, "x", idleJ2 + (0.5 - reach) * J2_RANGE * 0.5);
+      setRel(r.j3, "x", idleJ3 + (reach - 0.5) * J3_RANGE * 0.5);
     }
   });
 
