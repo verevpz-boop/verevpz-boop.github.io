@@ -1,9 +1,15 @@
 # Pavel Zverev — Portfolio Site
 
+> 🔴 **СНАЧАЛА читать `SITE_DECISIONS.md`** — канонический журнал актуальных решений и
+> граблей (деплой, R2, кодек H.264, CORS, аспекты, постеры, звук, трекбол, чат, нав).
+> Раздел ниже от 2026-05-03 частично УСТАРЕЛ (старый глобус с webm-спутниками, stub-страницы) —
+> при расхождении верить `SITE_DECISIONS.md`.
+
 ## Project
 **Path:** D:\pavel-site  
 **Goal:** Awwwards-tier portfolio for AI-Creator Pavel Zverev  
-**Contact:** Telegram @Verevpz
+**Contact:** Telegram @Verevpz  
+**Live:** https://verevpz-boop.github.io/ (GitHub Pages, auto-deploy on push to master)
 
 ## Stack
 - Next.js 16 + TypeScript + Tailwind v4 + App Router
