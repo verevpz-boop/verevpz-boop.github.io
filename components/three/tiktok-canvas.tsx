@@ -36,30 +36,22 @@ type Source =
   | { type: "image"; src: string }
   | { type: "black" };
 
+// 🔴 На странице TikTok висит ТОЛЬКО категория tiktok/ с R2 (Pavel).
+// Корневые fashion/cinema-фильмы и локальные клипы v1–v8 убраны.
 const _videos: Source[] = [
-  // Pavel's canonical R2 brand films (referenced, not hosted with the site)
-  { type: "video" as const, src: R2_VIDEOS.masterDynamic },
-  { type: "video" as const, src: R2_VIDEOS.dance },
-  { type: "video" as const, src: R2_VIDEOS.lime },
-  { type: "video" as const, src: R2_VIDEOS.veneto },
-  // TikTok R2 videos
   { type: "video" as const, src: R2_VIDEOS.smeh100 },
   { type: "video" as const, src: R2_VIDEOS.icelandMaster },
+  { type: "video" as const, src: R2_VIDEOS.islandMaster },
   { type: "video" as const, src: R2_VIDEOS.smeh0401 },
   { type: "video" as const, src: R2_VIDEOS.smeh0424tiktok },
   { type: "video" as const, src: R2_VIDEOS.face01 },
   { type: "video" as const, src: R2_VIDEOS.openartTiktok },
   { type: "video" as const, src: R2_VIDEOS.creationPolic4Tiktok },
-  // Local short-form clips
-  ...Array.from({ length: 8 }, (_, i) => ({
-    type: "video" as const,
-    src: `/videos/tiktok/v${i + 1}.mp4`,
-  })),
 ];
 
-// Только клипы (Pavel): статичные фото убраны. Пустые слоты — чёрные
-// заглушки, чтобы сфера оставалась полной; Pavel доввесит клипы позже.
-const SPHERE_TILES = 30;
+// Только клипы tiktok/ (Pavel): фото и чужие категории убраны. Пара чёрных
+// заглушек под будущие клипы; Pavel доввесит — тогда поднять число.
+const SPHERE_TILES = 14;
 const SOURCES: Source[] = (() => {
   const out: Source[] = [..._videos];
   while (out.length < SPHERE_TILES) out.push({ type: "black" as const });

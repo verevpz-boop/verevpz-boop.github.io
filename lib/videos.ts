@@ -44,9 +44,10 @@ export const R2_VIDEOS = {
   smeh0424gaming: r2("gaming/smeh_0424_2.mp4"),
   jimengWarriorsGaming: r2("gaming/jimeng_warriors_01.mp4"),
 
-  /* ── TikTok ─────────────────────────────────────────────────────────── */
+  /* ── TikTok (на странице TikTok висит ТОЛЬКО эта категория) ──────────── */
   smeh100: r2("tiktok/smeh_100.mp4"),
   icelandMaster: r2("tiktok/iceland_master.mp4"),
+  islandMaster: r2("tiktok/island_master.mp4"),
   smeh0401: r2("tiktok/smeh_0401_2.mp4"),
   smeh0424tiktok: r2("tiktok/smeh_0424_2.mp4"),
   face01: r2("tiktok/face_01.mp4"),
