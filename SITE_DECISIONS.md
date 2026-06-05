@@ -7,6 +7,7 @@
 ---
 
 ## 🚀 Деплой
+- **🔴 ПРАВИЛО (standing, Pavel 2026-06-05): закончил ЛЮБЫЕ правки сайта → СРАЗУ сам публикую** — `git add` + `commit` + `push` в `master`. Не ждать отдельной просьбы, не спрашивать «пушить?». Push = авто-деплой на Pages. Это часть «готово» по любой задаче сайта.
 - **Живой URL:** https://verevpz-boop.github.io/ — это **user-сайт** (репо `verevpz-boop.github.io`), обслуживается из корня → **basePath НЕ нужен**.
 - **Репо:** https://github.com/verevpz-boop/verevpz-boop.github.io (публичный).
 - **Аккаунт GitHub:** `verevpz-boop` (Google OAuth verevpz@gmail.com). `gh` CLI v2.93.0 авторизован. Детали — `КЛЮЧИ_И_ДОСТУПЫ.md`.
