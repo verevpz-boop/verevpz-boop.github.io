@@ -51,6 +51,12 @@ export default function CinemaPage() {
           aspect="9/16"
           caption="Venice — cinematic travel"
         />
+        <ShowcaseVideo
+          src={R2_VIDEOS.warEpic}
+          poster={POSTERS.warEpic}
+          aspect="16/9"
+          caption="War Epic — cinematic battle"
+        />
       </div>
     </SectionShell>
   );

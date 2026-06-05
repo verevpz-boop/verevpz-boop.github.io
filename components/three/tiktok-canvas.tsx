@@ -51,6 +51,7 @@ const _videos: Source[] = [
   { type: "video" as const, src: R2_VIDEOS.export0514 },
   { type: "video" as const, src: R2_VIDEOS.v3 },
   { type: "video" as const, src: R2_VIDEOS.materialWoman },
+  { type: "video" as const, src: R2_VIDEOS.racingSpeeders },
 ];
 
 // Только клипы tiktok/ (Pavel): фото и чужие категории убраны. Пара чёрных
