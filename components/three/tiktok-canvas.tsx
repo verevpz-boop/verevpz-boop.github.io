@@ -167,6 +167,8 @@ function TilesSphere({
   const tileWorldPos = useRef<THREE.Vector3>(new THREE.Vector3());
   const tileNormalWorld = useRef<THREE.Vector3>(new THREE.Vector3());
   const toCamRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  // Рефы плиток — для билборда (каждая всегда смотрит на камеру строго вертикально).
+  const tileRefs = useRef<(THREE.Group | null)[]>([]);
 
   // ── Звук следует за фокусом ──────────────────────────────────────────
   // Лента-логика: ближайшая к камере плитка-видео звучит, остальные молчат.
@@ -296,6 +298,15 @@ function TilesSphere({
     // Инерционно подтягиваем ориентацию к целевому кватерниону (трекбол, обе оси).
     groupRef.current.quaternion.slerp(targetQuat.current, Math.min(1, delta * 6));
 
+    // ── Билборд: плитки всегда смотрят на камеру СТРОГО вертикально ───────
+    // Шар крутит только их позиции, а сами плитки не заваливаются (up = мир Y).
+    groupRef.current.updateMatrixWorld(true);
+    state.camera.getWorldPosition(camPosRef.current);
+    for (let i = 0; i < tileRefs.current.length; i++) {
+      const tr = tileRefs.current[i];
+      if (tr) tr.lookAt(camPosRef.current);
+    }
+
     // ── Звук следует за фокусом ──────────────────────────────────────────
     // Раз в ~200мс пересчитываем, какое видео ближе всего к камере → оно «в фокусе».
     audioCheck.current += delta;
@@ -320,7 +331,11 @@ function TilesSphere({
       const b = bundles[i];
       if (b.type !== "video") continue;
       const target = audioUnlocked.current && i === focusedVideoIdx.current ? 1 : 0;
-      if (target > 0 && b.video.muted) { b.video.muted = false; b.video.volume = 0; }
+      if (target > 0) {
+        // фокус: гарантируем, что видео ИГРАЕТ (на паузе звука нет) и распахнуто
+        if (b.video.muted) { b.video.muted = false; b.video.volume = 0; }
+        if (b.video.paused) b.video.play().catch(() => {});
+      }
       // зажимаем в [0,1] — иначе overshoot бросает IndexSizeError и роняет render-loop
       const nv = Math.max(0, Math.min(1, b.video.volume + (target - b.video.volume) * Math.min(1, delta * 4)));
       b.video.volume = nv;
@@ -334,10 +349,7 @@ function TilesSphere({
     <group ref={groupRef}>
       {tiles.map((t, i) => (
         <group key={i} position={[t.x, t.y, t.z]}
-          ref={(obj: THREE.Group | null) => {
-            if (!obj) return;
-            obj.lookAt(0, 0, 0);
-          }}
+          ref={(obj: THREE.Group | null) => { tileRefs.current[i] = obj; }}
         >
           <mesh geometry={geometry} material={tileMats[i]} />
           <lineSegments geometry={edgesGeo} material={edgeLineMat} />
