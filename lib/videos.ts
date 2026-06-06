@@ -6,14 +6,15 @@
  * repo or /public. Always reference these R2 URLs directly inside a
  * <video src=...> tag. This module is the ONLY place R2 URLs may live.
  *
- * Delivery: Cloudflare Worker CDN `pavel-cdn.pzverev.workers.dev` (бесплатный
- * Workers free tier) — раздаёт бакет `video` с edge-кэшем и Range-запросами.
- * НЕ используем `*.r2.dev` напрямую: тот dev-URL Cloudflare троттлит и не
- * кэширует → на мобиле видео захлёбывалось. Воркер: `cdn-worker/`.
+ * Delivery: ПОКА снова напрямую с R2 `*.r2.dev`.
+ * ⚠️ 2026-06-06: пробовали Worker-CDN `pavel-cdn.pzverev.workers.dev`, но на
+ * РФ-мобайле БЕЗ VPN видео не открывалось вообще — `workers.dev`, видимо,
+ * режется ТСПУ. На ПК (под VPN) работало → асимметрия и выдала причину.
+ * Worker-код сохранён в `cdn-worker/` для будущего custom-домена (не workers.dev).
  * Source: Pavel's Framer project "Thankful Methodologies".
  */
 
-const R2_BASE = "https://pavel-cdn.pzverev.workers.dev/";
+const R2_BASE = "https://pub-4d3c064541404a1eb448a1c1229e2dfc.r2.dev/";
 
 /** Build an R2 URL, URL-encoding Cyrillic / spaces in the filename. */
 function r2(file: string): string {
