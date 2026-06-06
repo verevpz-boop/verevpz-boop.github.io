@@ -87,11 +87,63 @@ interface ShowcaseVideoProps {
 /** Глобальное событие: один ролик «забирает» звук → остальные глохнут. */
 const AUDIO_CLAIM_EVENT = "showcase-audio-claim";
 
+/* ── Глобальный менеджер воспроизведения ─────────────────────────────────────
+ * Ограничивает, СКОЛЬКО видео декодируется/играет одновременно. Мобильные
+ * браузеры (особенно iOS, ConcurrentPlaybackNotPermitted) захлёбываются, когда
+ * много <video> автозапускаются разом → часть не стартует или зависает. Держим
+ * играющими только N самых видимых, остальные стоят на постере.
+ * Приоритет = доля видимости (центральный ролик выигрывает). Клик «послушать»
+ * идёт с максимальным приоритетом — выбранный ролик менеджер не паузит.
+ */
+const playingNow = new Map<
+  string,
+  { el: HTMLVideoElement; priority: number }
+>();
+
+/** На мобиле/планшете ≤2 одновременно, на десктопе ≤4 (там декодеров хватает). */
+function maxConcurrent(): number {
+  if (typeof window === "undefined") return 3;
+  return window.innerWidth <= 1024 ? 2 : 4;
+}
+
+/** Запросить слот воспроизведения. Если слотов нет — паузим самый «дальний». */
+function requestPlay(id: string, el: HTMLVideoElement, priority: number) {
+  const existing = playingNow.get(id);
+  if (existing) {
+    existing.priority = priority;
+    if (el.paused) el.play().catch(() => {});
+    return;
+  }
+  if (playingNow.size >= maxConcurrent()) {
+    let victimId: string | null = null;
+    let victimPriority = priority;
+    for (const [pid, e] of playingNow) {
+      if (e.priority < victimPriority) {
+        victimPriority = e.priority;
+        victimId = pid;
+      }
+    }
+    if (victimId === null) return; // все играющие приоритетнее → стоим на постере
+    const victim = playingNow.get(victimId);
+    if (victim) {
+      victim.el.pause();
+      playingNow.delete(victimId);
+    }
+  }
+  playingNow.set(id, { el, priority });
+  el.play().catch(() => {});
+}
+
+/** Освободить слот (ушли за экран / размонтировались). */
+function releasePlay(id: string) {
+  playingNow.delete(id);
+}
+
 /**
- * R2-referenced video tile. Never downloads — src is always an R2 URL passed
- * in from lib/videos.ts. Автозапуск без звука (политика браузеров). По клику
- * ролик включает звук с плавным fade-in, а любой другой звучавший — глохнет.
- * Звук всегда у одного ролика за раз — галерейная логика, не каша.
+ * R2-referenced video tile. Источник всегда R2-URL из lib/videos.ts.
+ * Ленивая загрузка: src цепляется только у близких к экрану и ВЫГРУЖАЕТСЯ за
+ * кадром (освобождает декодер iOS). Автозапуск без звука идёт через менеджер,
+ * чтобы мобила не задыхалась. По клику — звук с fade-in, остальные глохнут.
  */
 export function ShowcaseVideo({
   src,
@@ -105,11 +157,48 @@ export function ShowcaseVideo({
   const videoRef = useRef<HTMLVideoElement>(null);
   const figureRef = useRef<HTMLElement>(null);
   const fadeRef = useRef<number | null>(null);
+  const attachedRef = useRef(false);
   const [muted, setMuted] = useState(true);
+  const [attached, setAttached] = useState(false);
   const id = useId();
 
-  // Играет только то, что на экране: видео за кадром на паузе (экономит CPU и
-  // трафик), в зоне видимости — играет. Зацикленное видео не уходит в чёрное.
+  /** Прицепить src немедленно (для клика, пока эффект attached ещё не отработал). */
+  function ensureAttached() {
+    const v = videoRef.current;
+    if (!v) return;
+    if (!attachedRef.current) {
+      attachedRef.current = true;
+      setAttached(true);
+    }
+    if (v.getAttribute("src") !== src) {
+      v.setAttribute("src", src);
+      v.load();
+    }
+  }
+
+  // Цепляем/отцепляем реальный источник. Отцепка освобождает декодер iOS, чтобы
+  // ролики за экраном не съедали лимит одновременных видео.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    attachedRef.current = attached;
+    if (attached) {
+      if (v.getAttribute("src") !== src) {
+        v.setAttribute("src", src);
+        v.load();
+      }
+    } else {
+      v.pause();
+      releasePlay(id);
+      if (v.getAttribute("src")) {
+        v.removeAttribute("src");
+        v.load(); // сбросить буфер — освободить декодер
+      }
+    }
+  }, [attached, src, id]);
+
+  // Two-phase видимость: близко к экрану → цепляем источник (начинаем грузить);
+  // видно ≥50% → просим слот воспроизведения; ушли за экран → выгрузка + слот назад.
   useEffect(() => {
     const v = videoRef.current;
     const fig = figureRef.current;
@@ -117,22 +206,35 @@ export function ShowcaseVideo({
     const io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
-          if (e.isIntersecting) v.play().catch(() => {});
-          else v.pause();
+          const ratio = e.intersectionRatio;
+          if (e.isIntersecting) {
+            if (!attachedRef.current) setAttached(true);
+            if (ratio >= 0.5 && attachedRef.current && v.getAttribute("src")) {
+              requestPlay(id, v, ratio);
+            } else if (ratio < 0.5) {
+              v.pause();
+              releasePlay(id);
+            }
+          } else {
+            v.pause();
+            releasePlay(id);
+            if (attachedRef.current) setAttached(false);
+          }
         }
       },
-      { threshold: 0.15 },
+      { rootMargin: "400px", threshold: [0, 0.25, 0.5, 0.75, 1] },
     );
     io.observe(fig);
     return () => io.disconnect();
-  }, []);
+  }, [id]);
 
-  // 🔴 При уходе со страницы (размонтировании) — глушим и останавливаем видео,
-  // иначе браузер тянет звук и декод старой страницы (музыка «лезет», тормоза).
+  // 🔴 При уходе со страницы (размонтировании) — глушим, освобождаем слот и
+  // выгружаем источник, иначе браузер тянет звук и декод старой страницы.
   useEffect(() => {
     const v = videoRef.current;
     return () => {
       if (fadeRef.current) cancelAnimationFrame(fadeRef.current);
+      releasePlay(id);
       if (v) {
         try {
           v.pause();
@@ -144,7 +246,7 @@ export function ShowcaseVideo({
         }
       }
     };
-  }, []);
+  }, [id]);
 
   /** Плавно меняет громкость от текущей к target за ms. */
   function fadeVolume(target: number, ms: number, onDone?: () => void) {
@@ -172,12 +274,14 @@ export function ShowcaseVideo({
   function playFromStart() {
     const v = videoRef.current;
     if (!v) return;
+    ensureAttached(); // клик может прийти раньше, чем ролик долистали — цепляем src
     // забрать звук — сказать остальным заглохнуть
     window.dispatchEvent(new CustomEvent(AUDIO_CLAIM_EVENT, { detail: id }));
     v.currentTime = 0; // старт заново по клику
     v.muted = false;
     v.volume = 0;
-    v.play().catch(() => {});
+    // Клик = намерение юзера → максимальный приоритет, менеджер его не паузит.
+    requestPlay(id, v, Number.POSITIVE_INFINITY);
     fadeVolume(1, 500);
     setMuted(false);
   }
@@ -225,13 +329,11 @@ export function ShowcaseVideo({
     >
       <video
         ref={videoRef}
-        src={src}
         poster={poster}
-        autoPlay
         muted
         loop
         playsInline
-        preload="metadata"
+        preload="none"
         className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.03]"
         style={{ aspectRatio: aspect }}
       />
