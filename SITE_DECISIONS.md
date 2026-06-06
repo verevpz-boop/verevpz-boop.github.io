@@ -58,17 +58,19 @@ autoplay-видео = часть не стартует/виснет. `ShowcaseVi
 - клик «послушать» = приоритет `Infinity` (менеджер не паузит выбранный).
 Аудио-claim/fade/динамик — сохранены.
 
-**Слой 2 — бесплатный CDN через Cloudflare Worker (`cdn-worker/`).**
-🔴 `*.r2.dev` — это DEV-URL, Cloudflare его ТРОТТЛИТ (rate-limit/429, без кэша) → НЕ для прода. Завели Worker, привязанный к бакету `video`:
-- URL: **`https://pavel-cdn.pzverev.workers.dev/`** (workers.dev сабдомен `pzverev`).
-- Раздаёт R2 с edge-кэшем (`caches.default`), Range→206 (перемотка), CORS (для TikTok-текстур, ACAO = github.io).
-- `lib/videos.ts` → `R2_BASE` указывает на Worker (НЕ на r2.dev).
-- Деплой: `cd cdn-worker; $env:CLOUDFLARE_API_TOKEN=<из КЛЮЧИ_И_ДОСТУПЫ>; npx wrangler deploy`. Free tier: 100k req/день, 0 egress R2.
-- ⚠️ При смене домена сайта — обновить `ALLOWED_ORIGINS` в `cdn-worker/src/index.js`.
+**Слой 2 — Worker-CDN (`cdn-worker/`) — ❌ ОТКАЧЕН (не для РФ).**
+Завели Worker `pavel-cdn.pzverev.workers.dev` (привязан к бакету `video`, edge-кэш, Range→206, CORS). На ДЕСКТОПЕ (под VPN) работал. НО на РФ-мобайле видео **не открывалось вообще** — `*.workers.dev` режется ТСПУ. Откатили: `R2_BASE` снова на `*.r2.dev`. Код воркера сохранён в `cdn-worker/` для будущего **custom-домена** (НЕ workers.dev). Деплой: `cd cdn-worker; $env:CLOUDFLARE_API_TOKEN=<из КЛЮЧИ>; npx wrangler deploy` (сабдомен workers.dev `pzverev` зарегистрирован).
 
-**Слой 3 — адаптивный HLS (ПЛАНируется, ещё не сделан).**
-ffmpeg → рендиции 360/720/1080 + master.m3u8 → R2 → Worker → плеер на hls.js.
-Даст «не виснет при просадке связи». Делаем после подтверждения Pavel'а, что 1+2 мало.
+**Слой А — облегчение битрейта — ✅ СДЕЛАНО 2026-06-06.**
+🔴 КОРЕНЬ ФРИЗА: все 33 ролика были **~15–17 Мбит/с** (CRF 21 без cap раздул на busy AI-картинке) — в 3–4× тяжелее веб-нормы. Перегнали ВСЕ на **≤5 Мбит/с 1080p + faststart**:
+`ffmpeg -i in -vf "scale='min(1920,iw)':-2" -c:v libx264 -profile:v high -pix_fmt yuv420p -maxrate 5M -bufsize 10M -crf 23 -preset medium -c:a aac -b:a 128k -movflags +faststart out`
+Скрипт-батч: `D:\video-reencode\reencode_all.ps1` (бэкап оригиналов в `orig\`, лог `reencode.log`). Перезалито на R2 (URL те же, код не трогали).
+- ⚠️ ГРАБЛЯ: r2.dev **рвёт длинные закачки** → orig-файл обрезается → ffmpeg «moov atom not found». ПОСЛЕ скачивания проверять `ffprobe format=duration`; если пусто — перекачать (reign и ВЕНЕТТО так словили, перекачали по 3 попытки).
+- ⚠️ ГРАБЛЯ: `.ps1` с кириллицей (имя юзера `ИИ Павел`, ключи `ВЕНЕТТО`/`Подсказка`) Windows PowerShell 5.1 читает БЕЗ BOM как кракозябры → пути ломаются. Сохранять скрипт **UTF-8 С BOM**.
+
+**Слой Б — адаптивный HLS — 🔴 НУЖЕН, НЕ СДЕЛАН (следующий шаг по сайту).**
+Диагноз 2026-06-06: после Слоя А на телефоне Pavel'а ВСЁ РАВНО тормозит — узкое место **доставка**: даже голый 7-МБ файл по прямой r2.dev-ссылке через его VPN грузится еле-еле (VPN-туннель Aeza WS узкий + r2.dev придушен в РФ). Один фикс-битрейт не спасает слабый/переменный канал.
+HLS решает: ffmpeg → 360/720/1080 + master.m3u8 → R2 → плеер hls.js. Плеер сам падает на 360p (~0.8 Мбит/с) → грузится мгновенно, поднимает качество если канал тянет. Это финальный фикс. Объём: перегон всех в 3 рендиции + сотни .ts на R2 + переписать `ShowcaseVideo` и `tiktok-canvas` на hls.js (TikTok-текстуры из HLS — аккуратно). Ждёт «гоу» Pavel'а.
 
 ## 🎥 Видео на сайте — аспекты, постеры, плеер
 - **Источник истины:** `lib/videos.ts` — `R2_VIDEOS` (URL) + `POSTERS` (первый кадр). URL НИКОГДА не хардкодить в компонентах.
