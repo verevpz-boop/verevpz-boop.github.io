@@ -6,11 +6,14 @@
  * repo or /public. Always reference these R2 URLs directly inside a
  * <video src=...> tag. This module is the ONLY place R2 URLs may live.
  *
- * Base bucket: https://pub-4d3c064541404a1eb448a1c1229e2dfc.r2.dev/
+ * Delivery: Cloudflare Worker CDN `pavel-cdn.pzverev.workers.dev` (бесплатный
+ * Workers free tier) — раздаёт бакет `video` с edge-кэшем и Range-запросами.
+ * НЕ используем `*.r2.dev` напрямую: тот dev-URL Cloudflare троттлит и не
+ * кэширует → на мобиле видео захлёбывалось. Воркер: `cdn-worker/`.
  * Source: Pavel's Framer project "Thankful Methodologies".
  */
 
-const R2_BASE = "https://pub-4d3c064541404a1eb448a1c1229e2dfc.r2.dev/";
+const R2_BASE = "https://pavel-cdn.pzverev.workers.dev/";
 
 /** Build an R2 URL, URL-encoding Cyrillic / spaces in the filename. */
 function r2(file: string): string {

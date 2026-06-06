@@ -1,0 +1,10 @@
+name = "pavel-cdn"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+account_id = "4e502301953c3bae312a35efb40d3739"
+workers_dev = true
+
+# Раздаём бакет с видео портфолио (тот же, что был на r2.dev)
+[[r2_buckets]]
+binding = "VIDEO_BUCKET"
+bucket_name = "video"

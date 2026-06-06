@@ -45,6 +45,31 @@ CORS выставлен на бакет `video` (origin `https://verevpz-boop.gi
 
 ---
 
+## 🚀🎥 Доставка видео — бесплатный «качественный» стек (2026-06-06)
+Симптом: на мобиле половина видео не стартовала / зависала после пары секунд.
+Три причины и фиксы (всё бесплатно, правило Pavel'а «качество + $0 до коммерции»):
+
+**Слой 1 — менеджер воспроизведения (`components/ui/section-shell.tsx`).**
+iOS лимитирует одновременный декод (`ConcurrentPlaybackNotPermitted`) → много
+autoplay-видео = часть не стартует/виснет. `ShowcaseVideo` теперь:
+- глобальный `playingNow`-менеджер: ≤2 одновременно на мобиле (`innerWidth<=1024`), ≤4 на десктопе; центральный (по `intersectionRatio`) выигрывает слот;
+- two-phase IntersectionObserver (`rootMargin 400px`): близко → цепляем `src`, видно ≥50% → просим слот;
+- `preload="none"` + **выгрузка `src`** (`removeAttribute`+`load`) за экраном — освобождает декодер iOS;
+- клик «послушать» = приоритет `Infinity` (менеджер не паузит выбранный).
+Аудио-claim/fade/динамик — сохранены.
+
+**Слой 2 — бесплатный CDN через Cloudflare Worker (`cdn-worker/`).**
+🔴 `*.r2.dev` — это DEV-URL, Cloudflare его ТРОТТЛИТ (rate-limit/429, без кэша) → НЕ для прода. Завели Worker, привязанный к бакету `video`:
+- URL: **`https://pavel-cdn.pzverev.workers.dev/`** (workers.dev сабдомен `pzverev`).
+- Раздаёт R2 с edge-кэшем (`caches.default`), Range→206 (перемотка), CORS (для TikTok-текстур, ACAO = github.io).
+- `lib/videos.ts` → `R2_BASE` указывает на Worker (НЕ на r2.dev).
+- Деплой: `cd cdn-worker; $env:CLOUDFLARE_API_TOKEN=<из КЛЮЧИ_И_ДОСТУПЫ>; npx wrangler deploy`. Free tier: 100k req/день, 0 egress R2.
+- ⚠️ При смене домена сайта — обновить `ALLOWED_ORIGINS` в `cdn-worker/src/index.js`.
+
+**Слой 3 — адаптивный HLS (ПЛАНируется, ещё не сделан).**
+ffmpeg → рендиции 360/720/1080 + master.m3u8 → R2 → Worker → плеер на hls.js.
+Даст «не виснет при просадке связи». Делаем после подтверждения Pavel'а, что 1+2 мало.
+
 ## 🎥 Видео на сайте — аспекты, постеры, плеер
 - **Источник истины:** `lib/videos.ts` — `R2_VIDEOS` (URL) + `POSTERS` (первый кадр). URL НИКОГДА не хардкодить в компонентах.
 - **Аспекты:** `ShowcaseVideo` принимает `aspect="16/9"` | `"9/16"`. **Перед привязкой проверять реальные размеры ffprobe** — вертикальные (1080×1920) → `9/16` (центрируются, max-width 400px), горизонтальные → `16/9`. Иначе `object-cover` кропает.
