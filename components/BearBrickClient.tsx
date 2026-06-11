@@ -8,6 +8,7 @@ const badgeImg = (
   <img
     src="/bearbrick-badge.webp"
     alt="AI-помощник — нажми и спроси"
+    loading="lazy"
     className="w-[110px] md:w-[170px] select-none drop-shadow-[0_8px_24px_rgba(0,0,0,0.55)]"
     draggable={false}
   />
@@ -19,8 +20,9 @@ const BearBrickCanvas = dynamic(
 );
 
 /**
- * Маскот-бейдж: всем сразу отдаём лёгкий WebP (5 КБ, мгновенно), 3D-версию
- * (GLB 2.3 МБ + R3F-canvas) монтируем ТОЛЬКО на десктопе и только когда
+ * Маскот: ТОЛЬКО десктоп (решение Pavel'а 2026-06-11 — на мобиле уродливо,
+ * убран совсем; вместе с ним на мобиле нет и входа в чат). На десктопе сперва
+ * лёгкий WebP-бейдж (5 КБ), 3D (GLB 2.3 МБ + R3F-canvas) монтируется когда
  * браузер простаивает — мишка не конкурирует с контентом за канал и GPU.
  */
 export function BearBrickClient() {
@@ -45,7 +47,7 @@ export function BearBrickClient() {
   return (
     <>
       <div
-        className="fixed bottom-8 right-8 z-30 cursor-pointer"
+        className="fixed bottom-8 right-8 z-30 hidden cursor-pointer lg:block"
         onClick={() => setChatOpen((s) => !s)}
       >
         {mount3d ? <BearBrickCanvas /> : badgeImg}
