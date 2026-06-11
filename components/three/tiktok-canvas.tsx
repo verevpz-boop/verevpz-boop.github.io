@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
-import { R2_VIDEOS } from "@/lib/videos";
+import { R2_VIDEOS, previewUrl } from "@/lib/videos";
 
 /* ─── reduced-motion detection ────────────────────────────────────────── */
 const prefersReducedMotion =
@@ -101,6 +101,10 @@ function useBundles(): Bundle[] {
       if (s.type === "video") {
         // 🔴 Без src при создании: 13 одновременных стримов с R2 убивали
         // мобильный канал. src вешает слот-менеджер только K ближним плиткам.
+        // Плитки сферы мелкие → им хватает превью 480p (Слой В); если превью
+        // ещё не залито на R2 — onError откатывает плитку на полный файл.
+        const lightSrc = previewUrl(s.src);
+        const fullSrc = s.src;
         const v = document.createElement("video");
         v.crossOrigin = "anonymous";
         v.loop = true;
@@ -108,6 +112,13 @@ function useBundles(): Bundle[] {
         v.playsInline = true;
         v.autoplay = false;
         v.preload = "auto";
+        v.addEventListener("error", () => {
+          if (v.getAttribute("src") === lightSrc) {
+            v.src = fullSrc;
+            v.load();
+            v.play().catch(() => {});
+          }
+        });
         const tex = new THREE.VideoTexture(v);
         tex.minFilter = THREE.LinearFilter;
         tex.magFilter = THREE.LinearFilter;
@@ -116,7 +127,7 @@ function useBundles(): Bundle[] {
         posterTex.colorSpace = THREE.SRGBColorSpace;
         posterTex.minFilter = THREE.LinearFilter;
         posterTex.magFilter = THREE.LinearFilter;
-        return { type: "video" as const, video: v, texture: tex, srcUrl: s.src, posterTex, live: false };
+        return { type: "video" as const, video: v, texture: tex, srcUrl: lightSrc, posterTex, live: false };
       } else if (s.type === "image") {
         const tex = loader.load(s.src);
         tex.colorSpace = THREE.SRGBColorSpace;
@@ -535,7 +546,16 @@ function CinemaScreen() {
   const [texture, setTexture] = useState<THREE.VideoTexture | null>(null);
   useEffect(() => {
     const v = document.createElement("video");
-    v.src = R2_VIDEOS.masterDynamic; // R2 URL — referenced, never bundled
+    // Слой В: панель-кинозал тоже стартует с превью; полного качества тут
+    // не видно на расстоянии, а канал бережём. Фоллбэк — на полный файл.
+    v.src = previewUrl(R2_VIDEOS.masterDynamic); // R2 URL — referenced, never bundled
+    v.addEventListener("error", () => {
+      if ((v.getAttribute("src") || "").includes("preview")) {
+        v.src = R2_VIDEOS.masterDynamic;
+        v.load();
+        v.play().catch(() => {});
+      }
+    });
     v.crossOrigin = "anonymous";
     v.loop = true;
     v.muted = true;

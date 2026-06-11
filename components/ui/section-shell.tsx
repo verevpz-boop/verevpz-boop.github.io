@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { motion } from "motion/react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { previewUrl } from "@/lib/videos";
 
 interface SectionShellProps {
   index: string;
@@ -154,6 +155,11 @@ export function ShowcaseVideo({
   // Вертикальные 9:16 ограничиваем по ширине и центрируем — иначе на всю
   // ширину контейнера они выходят гигантскими. Горизонтальные 16:9 — во всю ширину.
   const isVertical = aspect === "9/16";
+  // Слой В: автоплей в ленте идёт ЛЁГКИМ превью (480p, пролезает в слабый
+  // канал). Полный 1080p цепляется по клику или onError-фоллбэком, если
+  // превью ещё не залито на R2. hqRef=true — этот ролик уже на полном файле.
+  const lightSrc = previewUrl(src);
+  const hqRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const figureRef = useRef<HTMLElement>(null);
   const fadeRef = useRef<number | null>(null);
@@ -170,8 +176,9 @@ export function ShowcaseVideo({
       attachedRef.current = true;
       setAttached(true);
     }
-    if (v.getAttribute("src") !== src) {
-      v.setAttribute("src", src);
+    const wanted = hqRef.current ? src : lightSrc;
+    if (v.getAttribute("src") !== wanted) {
+      v.setAttribute("src", wanted);
       v.load();
     }
   }
@@ -183,8 +190,9 @@ export function ShowcaseVideo({
     if (!v) return;
     attachedRef.current = attached;
     if (attached) {
-      if (v.getAttribute("src") !== src) {
-        v.setAttribute("src", src);
+      const wanted = hqRef.current ? src : lightSrc;
+      if (v.getAttribute("src") !== wanted) {
+        v.setAttribute("src", wanted);
         v.load();
       }
     } else {
@@ -195,7 +203,7 @@ export function ShowcaseVideo({
         v.load(); // сбросить буфер — освободить декодер
       }
     }
-  }, [attached, src, id]);
+  }, [attached, src, lightSrc, id]);
 
   // Two-phase видимость: близко к экрану → цепляем источник (начинаем грузить);
   // видно ≥50% → просим слот воспроизведения; ушли за экран → выгрузка + слот назад.
@@ -275,6 +283,12 @@ export function ShowcaseVideo({
     const v = videoRef.current;
     if (!v) return;
     ensureAttached(); // клик может прийти раньше, чем ролик долистали — цепляем src
+    // Клик = намерение смотреть → переключаемся с превью на полный 1080p.
+    if (!hqRef.current) {
+      hqRef.current = true;
+      v.setAttribute("src", src);
+      v.load();
+    }
     // забрать звук — сказать остальным заглохнуть
     window.dispatchEvent(new CustomEvent(AUDIO_CLAIM_EVENT, { detail: id }));
     v.currentTime = 0; // старт заново по клику
@@ -308,6 +322,18 @@ export function ShowcaseVideo({
     else muteSelf();
   }
 
+  /** Превью ещё не залито на R2 (404/ошибка) → тихо откатываемся на полный файл. */
+  function handleVideoError() {
+    const v = videoRef.current;
+    if (!v || hqRef.current) return;
+    hqRef.current = true;
+    if (attachedRef.current) {
+      v.setAttribute("src", src);
+      v.load();
+      if (playingNow.has(id)) v.play().catch(() => {});
+    }
+  }
+
   // слушаем, когда звук забрал другой ролик → ВСЕГДА глохнем (надёжно, без условий)
   useEffect(() => {
     function onClaim(e: Event) {
@@ -330,6 +356,7 @@ export function ShowcaseVideo({
       <video
         ref={videoRef}
         poster={poster}
+        onError={handleVideoError}
         muted
         loop
         playsInline
