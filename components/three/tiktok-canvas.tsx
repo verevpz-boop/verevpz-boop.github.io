@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
@@ -32,26 +32,28 @@ function springStep(
  *   Master Dynamic / Venice → cinema, LIME → fashion, "с голосом" → dance.
  */
 type Source =
-  | { type: "video"; src: string }
+  | { type: "video"; src: string; poster: string }
   | { type: "image"; src: string }
   | { type: "black" };
 
 // 🔴 На странице TikTok висит ТОЛЬКО категория tiktok/ с R2 (Pavel).
 // Корневые fashion/cinema-фильмы и локальные клипы v1–v8 убраны.
+// poster = первый кадр (public/posters/tiktok) — плитка живёт постером,
+// видео-src вешается ТОЛЬКО когда плитка попадает в активные слоты.
 const _videos: Source[] = [
-  { type: "video" as const, src: R2_VIDEOS.smeh100 },
-  { type: "video" as const, src: R2_VIDEOS.icelandMaster },
-  { type: "video" as const, src: R2_VIDEOS.islandMaster },
-  { type: "video" as const, src: R2_VIDEOS.smeh0401 },
-  { type: "video" as const, src: R2_VIDEOS.smeh0424tiktok },
-  { type: "video" as const, src: R2_VIDEOS.face01 },
-  { type: "video" as const, src: R2_VIDEOS.openartTiktok },
-  { type: "video" as const, src: R2_VIDEOS.creationPolic4Tiktok },
-  { type: "video" as const, src: R2_VIDEOS.golos },
-  { type: "video" as const, src: R2_VIDEOS.export0514 },
-  { type: "video" as const, src: R2_VIDEOS.v3 },
-  { type: "video" as const, src: R2_VIDEOS.materialWoman },
-  { type: "video" as const, src: R2_VIDEOS.racingSpeeders },
+  { type: "video" as const, src: R2_VIDEOS.smeh100, poster: "/posters/tiktok/smeh_100.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.icelandMaster, poster: "/posters/tiktok/iceland_master.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.islandMaster, poster: "/posters/tiktok/island_master.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.smeh0401, poster: "/posters/tiktok/smeh_0401_2.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.smeh0424tiktok, poster: "/posters/tiktok/smeh_0424_2.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.face01, poster: "/posters/tiktok/face_01.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.openartTiktok, poster: "/posters/tiktok/openart_tiktok_01.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.creationPolic4Tiktok, poster: "/posters/tiktok/creation_polic4.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.golos, poster: "/posters/tiktok/golos.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.export0514, poster: "/posters/tiktok/export-0514-2.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.v3, poster: "/posters/tiktok/v3.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.materialWoman, poster: "/posters/tiktok/material-woman.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.racingSpeeders, poster: "/posters/tiktok/racing-speeders.jpg" },
 ];
 
 // Только клипы tiktok/ (Pavel): фото и чужие категории убраны. Пара чёрных
@@ -80,7 +82,14 @@ const WORLD_Y = new THREE.Vector3(0, 1, 0);
 
 /* ─── shared bundles — one entry per SOURCES item ─────────────────────── */
 type Bundle =
-  | { type: "video"; video: HTMLVideoElement; texture: THREE.VideoTexture }
+  | {
+      type: "video";
+      video: HTMLVideoElement;
+      texture: THREE.VideoTexture;
+      srcUrl: string;
+      posterTex: THREE.Texture;
+      live: boolean;
+    }
   | { type: "image"; texture: THREE.Texture }
   | { type: "black" };
 
@@ -90,20 +99,24 @@ function useBundles(): Bundle[] {
     const loader = new THREE.TextureLoader();
     return SOURCES.map((s) => {
       if (s.type === "video") {
-        // Eager src + preload metadata, but actual fetch is gated by stagger
+        // 🔴 Без src при создании: 13 одновременных стримов с R2 убивали
+        // мобильный канал. src вешает слот-менеджер только K ближним плиткам.
         const v = document.createElement("video");
-        v.src = s.src;
         v.crossOrigin = "anonymous";
         v.loop = true;
         v.muted = true;
         v.playsInline = true;
         v.autoplay = false;
-        v.preload = "metadata";
+        v.preload = "auto";
         const tex = new THREE.VideoTexture(v);
         tex.minFilter = THREE.LinearFilter;
         tex.magFilter = THREE.LinearFilter;
         tex.colorSpace = THREE.SRGBColorSpace;
-        return { type: "video" as const, video: v, texture: tex };
+        const posterTex = loader.load(s.poster);
+        posterTex.colorSpace = THREE.SRGBColorSpace;
+        posterTex.minFilter = THREE.LinearFilter;
+        posterTex.magFilter = THREE.LinearFilter;
+        return { type: "video" as const, video: v, texture: tex, srcUrl: s.src, posterTex, live: false };
       } else if (s.type === "image") {
         const tex = loader.load(s.src);
         tex.colorSpace = THREE.SRGBColorSpace;
@@ -245,29 +258,29 @@ function TilesSphere({
         });
       }
       return new THREE.MeshBasicMaterial({
-        map: b.texture,
+        // видео-плитка живёт постером, пока слот-менеджер не оживит её
+        map: b.type === "video" ? b.posterTex : b.texture,
         toneMapped: false,
         side: THREE.DoubleSide,
       });
     });
   }, [bundles, tiles]);
 
-  // Staggered video startup — kick play() on each video with 600ms gap so
-  // they don't all hit the network at once. By the time the 8th loads,
-  // the first ~5 are already buffered and decoding.
-  useEffect(() => {
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    let stagger = 0;
-    bundles.forEach((b) => {
-      if (b.type !== "video") return;
-      const delay = stagger;
-      stagger += 600;
-      timers.push(setTimeout(() => {
-        b.video.play().catch(() => {});
-      }, delay));
+  // Материал плитки по индексу bundle — слот-менеджер меняет map постер↔видео.
+  const matByBundle = useMemo(() => {
+    const m = new Map<number, THREE.MeshBasicMaterial>();
+    tiles.forEach((t, i) => {
+      if (tileMats[i]) m.set(t.sourceIdx, tileMats[i] as THREE.MeshBasicMaterial);
     });
-    return () => timers.forEach(clearTimeout);
-  }, [bundles]);
+    return m;
+  }, [tiles, tileMats]);
+
+  // ── Ленивые слоты: одновременно живут только K ближних к камере видео.
+  // На мобиле 2 (iOS лимитирует параллельный декод + узкий канал), десктоп 4.
+  const maxLive = useMemo(
+    () => (typeof window !== "undefined" && window.innerWidth <= 1024 ? 2 : 4),
+    [],
+  );
 
   // Надёжность: если вкладка грузилась в фоне (autoplay подавлен) — перезапускаем
   // видео при возврате видимости и по первому жесту, иначе плитки чёрные.
@@ -275,7 +288,7 @@ function TilesSphere({
     const replay = () => {
       if (document.visibilityState !== "visible") return;
       bundles.forEach((b) => {
-        if (b.type === "video" && b.video.paused) b.video.play().catch(() => {});
+        if (b.type === "video" && b.live && b.video.paused) b.video.play().catch(() => {});
       });
     };
     document.addEventListener("visibilitychange", replay);
@@ -319,23 +332,55 @@ function TilesSphere({
     targetQuat.current.copy(qPitchRef.current).multiply(qYawRef.current);
     groupRef.current.quaternion.slerp(targetQuat.current, Math.min(1, delta * 6));
 
-    // ── Звук следует за фокусом ──────────────────────────────────────────
-    // Раз в ~200мс пересчитываем, какое видео ближе всего к камере → оно «в фокусе».
+    // ── Слоты + фокус: раз в ~300мс ранжируем видео-плитки по близости к камере.
+    // K ближних получают src и играют; ушедшие из слотов выгружаются до постера
+    // (src снимается → декодер и канал свободны). В сеть одновременно ходят
+    // максимум maxLive стримов, а не все 13 — раньше это убивало мобильный канал.
     audioCheck.current += delta;
-    if (audioUnlocked.current && audioCheck.current > 0.2) {
+    if (audioCheck.current > 0.3) {
       audioCheck.current = 0;
       state.camera.getWorldPosition(camPosRef.current);
-      let best = -1;
-      let bestDist = Infinity;
+      const ranked: { idx: number; d: number }[] = [];
       for (let i = 0; i < tiles.length; i++) {
         if (bundles[tiles[i].sourceIdx]?.type !== "video") continue;
         tileWorldPos.current
           .set(tiles[i].x, tiles[i].y, tiles[i].z)
           .applyMatrix4(groupRef.current.matrixWorld);
-        const d = tileWorldPos.current.distanceTo(camPosRef.current);
-        if (d < bestDist) { bestDist = d; best = tiles[i].sourceIdx; }
+        ranked.push({
+          idx: tiles[i].sourceIdx,
+          d: tileWorldPos.current.distanceTo(camPosRef.current),
+        });
       }
-      focusedVideoIdx.current = best;
+      ranked.sort((a, b) => a.d - b.d);
+      const want = new Set(ranked.slice(0, maxLive).map((r) => r.idx));
+      bundles.forEach((b, bi) => {
+        if (b.type !== "video") return;
+        if (want.has(bi) && !b.live) {
+          b.live = true;
+          b.video.src = b.srcUrl;
+          b.video.load();
+          b.video.play().catch(() => {});
+        } else if (!want.has(bi) && b.live) {
+          b.live = false;
+          b.video.pause();
+          b.video.removeAttribute("src");
+          b.video.load();
+          const m = matByBundle.get(bi);
+          if (m && m.map !== b.posterTex) { m.map = b.posterTex; m.needsUpdate = true; }
+        }
+      });
+      focusedVideoIdx.current = ranked.length ? ranked[0].idx : -1;
+    }
+
+    // Постер → живое видео, как только декодер выдал первые кадры.
+    for (let bi = 0; bi < bundles.length; bi++) {
+      const b = bundles[bi];
+      if (b.type !== "video" || !b.live) continue;
+      const m = matByBundle.get(bi);
+      if (m && b.video.readyState >= 2 && m.map !== b.texture) {
+        m.map = b.texture;
+        m.needsUpdate = true;
+      }
     }
 
     // Каждый кадр плавно ведём громкость к цели: фокус → 1, остальные → 0.
@@ -485,8 +530,10 @@ function BearBrickCenter() {
  * self-lit, front-facing. Tasteful single 16/9 panel, not part of the swirl. */
 function CinemaScreen() {
   const ref = useRef<THREE.Mesh>(null!);
-  const texture = useMemo(() => {
-    if (typeof document === "undefined") return null;
+  // Создание в useEffect, не в useMemo: отброшенный конкурентный рендер
+  // React 19 иначе оставляет «осиротевшее» видео, которое продолжает качать.
+  const [texture, setTexture] = useState<THREE.VideoTexture | null>(null);
+  useEffect(() => {
     const v = document.createElement("video");
     v.src = R2_VIDEOS.masterDynamic; // R2 URL — referenced, never bundled
     v.crossOrigin = "anonymous";
@@ -499,9 +546,17 @@ function CinemaScreen() {
     t.minFilter = THREE.LinearFilter;
     t.magFilter = THREE.LinearFilter;
     t.colorSpace = THREE.SRGBColorSpace;
-    // gentle delayed start so it doesn't race the tile cloud network-wise
-    setTimeout(() => v.play().catch(() => {}), 400);
-    return t;
+    // отложенный старт — не толкаемся с плитками сферы за канал
+    const timer = setTimeout(() => v.play().catch(() => {}), 1200);
+    setTexture(t);
+    return () => {
+      clearTimeout(timer);
+      v.pause();
+      v.removeAttribute("src");
+      v.load();
+      t.dispose();
+      setTexture(null);
+    };
   }, []);
 
   useFrame((state) => {

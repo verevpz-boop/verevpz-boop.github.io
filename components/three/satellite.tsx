@@ -156,9 +156,13 @@ export function Satellite({
   const EARTH_RADIUS = 4.5;
   const rotRad = orbitRotation.map((d) => (d * Math.PI) / 180) as [number, number, number];
 
-  // Video texture (optional — only for satellites with videoSrc)
-  const videoEl = useMemo(() => {
-    if (!videoSrc) return null;
+  // Video texture (optional — only for satellites with videoSrc).
+  // 🔴 Создание в useEffect, НЕ в useMemo: React 19 может выбросить результат
+  // конкурентного рендера, но созданный в нём <video> уже начал качать файл —
+  // каждый webm уходил в сеть дважды.
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    if (!videoSrc) return;
     const v = document.createElement("video");
     v.src = videoSrc;
     v.crossOrigin = "anonymous";
@@ -169,8 +173,14 @@ export function Satellite({
     v.preload = "auto";
     v.load();
     v.play().catch(() => {});
-    return v;
-  }, [videoSrc, name]);
+    setVideoEl(v);
+    return () => {
+      v.pause();
+      v.removeAttribute("src");
+      v.load();
+      setVideoEl(null);
+    };
+  }, [videoSrc]);
 
   const videoTexture = useMemo(() => {
     if (!videoEl) return null;

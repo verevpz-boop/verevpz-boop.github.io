@@ -2,6 +2,7 @@
 import dynamic from "next/dynamic";
 import { motion } from "motion/react";
 import { MagneticLink } from "@/components/ui/magnetic-link";
+import { WorksFeed } from "@/components/ui/works-feed";
 
 const SECTIONS = [
   { label: "Fashion", href: "/fashion" },
@@ -27,7 +28,11 @@ const GlobeCanvasDynamic = dynamic(
 
 export function GlobeSection() {
   return (
-    <main className="relative h-screen w-full overflow-hidden bg-[#0A0A0A]">
+    // 🔴 Главная СКРОЛЛИТСЯ (просьба Pavel'а): глобус — первый экран,
+    // ниже обычным скроллом — лента работ (постеры). overflow-hidden
+    // остаётся только на hero-секции, не на всей странице.
+    <main className="relative w-full bg-[#0A0A0A]">
+      <section className="relative h-screen w-full overflow-hidden">
 
       {/* ── Top label ───────────────────────────────────────── */}
       <motion.div
@@ -129,6 +134,22 @@ export function GlobeSection() {
         </a>
       </motion.div>
 
+      {/* ── Scroll cue — работы ниже ───────────────────────── */}
+      <motion.div
+        className="pointer-events-none absolute bottom-2 left-0 right-0 z-20 flex justify-center"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.6, delay: 1.6 }}
+      >
+        <span className="animate-bounce text-lg" style={{ color: "rgba(201,169,97,0.7)" }}>
+          ▾
+        </span>
+      </motion.div>
+
+      </section>
+
+      {/* ── Лента работ — видна сразу при скролле ──────────── */}
+      <WorksFeed />
     </main>
   );
 }
