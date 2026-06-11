@@ -24,7 +24,7 @@ export function SectionShell({
   children,
 }: SectionShellProps) {
   return (
-    <main className="min-h-screen bg-[#0A0A0A] text-[#F5F1E8]">
+    <main className="min-h-screen bg-background text-[#F5F1E8]">
       <div className="mx-auto max-w-6xl px-6 pb-32 pt-24 md:pt-32">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -323,7 +323,7 @@ export function ShowcaseVideo({
     <figure
       ref={figureRef}
       onClick={playFromStart}
-      className={`group relative cursor-pointer overflow-hidden rounded-sm border border-[#C9A961]/15 bg-black/40 ${
+      className={`group relative cursor-pointer overflow-hidden rounded-sm border border-[#C9A961]/25 bg-black/40 ${
         isVertical ? "mx-auto w-full max-w-[400px]" : "w-full"
       }`}
     >

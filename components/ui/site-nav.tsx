@@ -31,7 +31,7 @@ export function SiteNav() {
       transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       className="fixed top-0 left-0 right-0 z-50"
       style={{
-        background: "linear-gradient(180deg, rgba(10,10,10,0.82) 0%, rgba(10,10,10,0) 100%)",
+        background: "linear-gradient(180deg, rgba(20,16,11,0.85) 0%, rgba(20,16,11,0) 100%)",
         backdropFilter: "blur(8px)",
         WebkitBackdropFilter: "blur(8px)",
       }}

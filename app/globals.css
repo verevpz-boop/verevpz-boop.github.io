@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0A0A0A;
+  /* Тёплый нуар (Pavel, 2026-06-11): чёрный с коричневым подтоном «эспрессо» —
+     склеивается с золотом, страница теплее. Был чисто-чёрный #0A0A0A. */
+  --background: #14100B;
   --foreground: #F5F1E8;
   --gold: #C9A961;
   --bordeaux: #3D1F1F;

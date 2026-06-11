@@ -103,7 +103,7 @@ export function WorksFeed() {
                 <Link
                   key={p}
                   href={row.href}
-                  className={`group relative overflow-hidden rounded-lg border border-white/10 bg-black/40 ${
+                  className={`group relative overflow-hidden rounded-lg border border-[#C9A961]/25 bg-black/40 ${
                     row.tall ? "aspect-[9/16] sm:aspect-[3/4]" : "aspect-video"
                   }`}
                 >

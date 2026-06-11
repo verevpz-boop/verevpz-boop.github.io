@@ -127,7 +127,7 @@ export function GlobeCanvas() {
       camera={{ position: [0, 14, 36], fov: 52 }}
       gl={{ antialias: true, alpha: true }}
       dpr={[1, 1.5]}
-      style={{ background: "radial-gradient(ellipse at 50% 50%, #0d1117 0%, #070709 45%, #000000 100%)" }}
+      style={{ background: "radial-gradient(ellipse at 50% 50%, #181210 0%, #0e0a07 45%, #000000 100%)" }}
     >
       <CameraController target={flyTarget} onArrived={handleArrived} />
 

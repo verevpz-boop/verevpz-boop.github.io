@@ -31,7 +31,7 @@ export function GlobeSection() {
     // 🔴 Главная СКРОЛЛИТСЯ (просьба Pavel'а): глобус — первый экран,
     // ниже обычным скроллом — лента работ (постеры). overflow-hidden
     // остаётся только на hero-секции, не на всей странице.
-    <main className="relative w-full bg-[#0A0A0A]">
+    <main className="relative w-full bg-background">
       <section className="relative h-screen w-full overflow-hidden">
 
       {/* ── Top label ───────────────────────────────────────── */}
