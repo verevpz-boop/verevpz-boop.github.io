@@ -51,6 +51,9 @@ export const R2_VIDEOS = {
   smeh0424gaming: r2("gaming/smeh_0424_2.mp4"),
   jimengWarriorsGaming: r2("gaming/jimeng_warriors_01.mp4"),
 
+  /* ── Tech ───────────────────────────────────────────────────────────── */
+  maldivesHotel: r2("tech/maldives_hotel_01.mp4"),
+
   /* ── TikTok (на странице TikTok висит ТОЛЬКО эта категория) ──────────── */
   smeh100: r2("tiktok/smeh_100.mp4"),
   icelandMaster: r2("tiktok/iceland_master.mp4"),
@@ -84,6 +87,7 @@ export function previewUrl(fullUrl: string): string {
  * Мелкие JPG (≈16–140 КБ) — на нагрузку не влияют.
  */
 export const POSTERS = {
+  maldivesHotel: "/posters/maldives_hotel.jpg",
   calvinKlein: "/posters/calvin_klein.jpg",
   lime: "/posters/lime.jpg",
   demonessaMaster: "/posters/demonessa_master.jpg",
