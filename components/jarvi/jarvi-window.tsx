@@ -30,7 +30,7 @@ const STATE_COLOR: Record<JarviState, string> = {
 };
 
 export function JarviWindow() {
-  const driver = useRef<JarviDriver>({ state: "off" });
+  const driver = useRef<JarviDriver>({ state: "off", mouth: -1 });
   const engineRef = useRef<JarviEngine | null>(null);
   const [state, setState] = useState<JarviState>("off");
   const [subtitle, setSubtitle] = useState("");
@@ -76,6 +76,7 @@ export function JarviWindow() {
         onSubtitle: setSubtitle,
         onUserText: setUserText,
         onLatency: (ms) => { setLatency(ms); console.log(`[jarvi] замолчал→первый звук: ${ms}мс`); },
+        onMouth: (v) => { driver.current.mouth = v; }, // живой липсинк по амплитуде
       });
     }
     void engineRef.current.start();

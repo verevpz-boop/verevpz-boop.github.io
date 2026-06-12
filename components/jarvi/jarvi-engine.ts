@@ -18,7 +18,11 @@ export interface JarviEvents {
   onSubtitle: (text: string) => void;      // что Джарви говорит (последняя реплика)
   onUserText: (text: string) => void;      // что слышим от гостя (interim)
   onLatency?: (ms: number) => void;        // «замолчал → первый звук» (замер ≤1с)
+  onMouth?: (open: number) => void;        // 0..1 открытие рта (живой липсинк, этаж Б)
 }
+
+type VoiceMode = "browser" | "live";
+type LiveJob = { text: string; audio: Promise<AudioBuffer | null> };
 
 const ENDPOINT_MS = 320;        // тишина interim → фраза готова
 const ENDPOINT_TICK = 90;
@@ -89,6 +93,15 @@ export class JarviEngine {
   private streamDone = false;
   private cutMidSentence = false;
 
+  // ── живой голос (этаж Б): Silero WAV через /tts → AudioContext + анализатор ──
+  private voiceMode: VoiceMode = "browser";
+  private audioCtx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private liveJobs: LiveJob[] = [];
+  private liveSource: AudioBufferSourceNode | null = null;
+  private livePlaying = false;
+  private mouthTimer: ReturnType<typeof setInterval> | null = null;
+
   private turnT0 = 0;                 // момент «гость замолчал» (commit)
   private firstAudioReported = false;
 
@@ -108,15 +121,19 @@ export class JarviEngine {
     return !!(w.webkitSpeechRecognition || w.SpeechRecognition) && "speechSynthesis" in window;
   }
 
+  private cfgVoice: VoiceMode = "browser";
+
   /** Перечитать config (URL туннеля мог ротироваться) и проверить мозг. */
   private async resolveBrain(): Promise<boolean> {
     try {
       const cfg = await fetch("/jarvi-config.json?t=" + Date.now(), { cache: "no-store" }).then((r) => r.json());
       const base = String(cfg.chatBase || "").replace(/\/$/, "");
       if (!base) return false;
-      const h = await fetch(base + "/health", { signal: AbortSignal.timeout(6000) });
+      const h = await fetch(base + "/health", { signal: AbortSignal.timeout(6000) }).then((r) => r.json());
       if (!h.ok) return false;
       this.chatBase = base;
+      // живой голос — только если config просит И сайдкар на сервере жив
+      this.cfgVoice = cfg.voice === "live" && h.tts ? "live" : "browser";
       return true;
     } catch { return false; }
   }
@@ -142,7 +159,20 @@ export class JarviEngine {
     // конфиг → база прокси + проверка мозга (и прогрев TLS)
     if (!(await this.resolveBrain())) { this.recActive = true; this.goSleep(); return; }
 
-    // разблокировка speechSynthesis внутри жеста
+    // голосовой режим из config; AudioContext создаём ВНУТРИ жеста (иначе suspended)
+    this.voiceMode = this.cfgVoice;
+    if (this.voiceMode === "live") {
+      try {
+        const Ctor = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+        this.audioCtx = new Ctor();
+        this.analyser = this.audioCtx.createAnalyser();
+        this.analyser.fftSize = 512;
+        this.analyser.connect(this.audioCtx.destination);
+        await this.audioCtx.resume();
+      } catch { this.voiceMode = "browser"; this.audioCtx = null; this.analyser = null; }
+    }
+
+    // разблокировка speechSynthesis внутри жеста (нужна и как фоллбэк живого режима)
     try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
     this.pickVoice();
     if (speechSynthesis.onvoiceschanged === null) speechSynthesis.onvoiceschanged = () => this.pickVoice();
@@ -260,11 +290,15 @@ export class JarviEngine {
   }
 
   // ── МОЗГ: SSE-стрим ───────────────────────────────────────────────
+  private turnId = 0;
+
   private async askBrain() {
+    this.turnId++;
     this.setState("thinking");
     this.replyAllText = "";
     this.spokenSentences = [];
     this.ttsQueue = [];
+    this.liveJobs = [];
     this.streamDone = false;
     this.cutMidSentence = false;
     this.ev.onSubtitle("");
@@ -334,11 +368,25 @@ export class JarviEngine {
   private enqueueSentence(raw: string) {
     const s = cleanForSpeech(raw);
     if (!s) return;
-    this.ttsQueue.push(s);
     this.replyAllText += " " + s;
-    if (this.state === "thinking" || (this.state === "speaking" && !speechSynthesis.speaking)) this.speakNext();
+    if (this.voiceMode === "live" && this.audioCtx) {
+      // синтез СТАРТУЕТ сразу (конвейер: фразу N+1 синтезируем, пока N звучит)
+      this.liveJobs.push({ text: s, audio: this.fetchTts(s) });
+      this.runLiveLoop(this.turnId);
+    } else {
+      this.ttsQueue.push(s);
+      if (this.state === "thinking" || (this.state === "speaking" && !speechSynthesis.speaking)) this.speakNext();
+    }
   }
 
+  private reportFirstAudio() {
+    if (!this.firstAudioReported && this.turnT0) {
+      this.firstAudioReported = true;
+      this.ev.onLatency?.(Math.round(performance.now() - this.turnT0));
+    }
+  }
+
+  // ── БРАУЗЕРНЫЙ голос (этаж А / фоллбэк) ────────────────────────────
   private speakNext() {
     const s = this.ttsQueue.shift();
     if (!s) { this.maybeFinishTurn(); return; }
@@ -350,23 +398,102 @@ export class JarviEngine {
     u.pitch = 0.85;
     u.onstart = () => {
       this.speakingNow = s;
-      if (!this.firstAudioReported && this.turnT0) {
-        this.firstAudioReported = true;
-        this.ev.onLatency?.(Math.round(performance.now() - this.turnT0));
-      }
+      this.reportFirstAudio();
       this.ev.onSubtitle(this.spokenSentences.concat([s]).join(" "));
     };
-    u.onend = () => {
-      this.spokenSentences.push(s);
-      this.speakingNow = "";
-      this.speakNext();
-    };
+    u.onend = () => { this.spokenSentences.push(s); this.speakingNow = ""; this.speakNext(); };
     u.onerror = () => { this.speakingNow = ""; this.speakNext(); };
     speechSynthesis.speak(u);
   }
 
+  // ── ЖИВОЙ голос (этаж Б): Silero WAV → AudioContext + амплитудный липсинк ──
+  private async fetchTts(text: string): Promise<AudioBuffer | null> {
+    try {
+      const r = await fetch(this.chatBase + "/tts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }), signal: this.llmAbort?.signal,
+      });
+      if (!r.ok) return null;
+      const buf = await r.arrayBuffer();
+      return await this.audioCtx!.decodeAudioData(buf);
+    } catch { return null; }
+  }
+
+  private async runLiveLoop(turn: number) {
+    if (this.livePlaying || turn !== this.turnId) return;
+    this.livePlaying = true;
+    this.startMouth();
+    while (this.liveJobs.length && turn === this.turnId) {
+      const job = this.liveJobs.shift()!;
+      const buf = await job.audio;
+      if (turn !== this.turnId || (this.state !== "thinking" && this.state !== "speaking")) break; // барж-ин/новый ход
+      this.setState("speaking");
+      this.speakingNow = job.text;
+      this.reportFirstAudio();
+      this.ev.onSubtitle(this.spokenSentences.concat([job.text]).join(" "));
+      if (buf) {
+        await this.playBuffer(buf);
+      } else {
+        await this.playBrowserSentence(job.text); // фоллбэк: синтез не дошёл
+      }
+      if (this.speakingNow) this.spokenSentences.push(job.text);
+      this.speakingNow = "";
+    }
+    this.livePlaying = false;
+    this.stopMouth();
+    this.maybeFinishTurn();
+  }
+
+  private playBuffer(buf: AudioBuffer): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.audioCtx || !this.analyser) return resolve();
+      const src = this.audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(this.analyser);
+      this.liveSource = src;
+      src.onended = () => { if (this.liveSource === src) this.liveSource = null; resolve(); };
+      try { src.start(); } catch { resolve(); }
+    });
+  }
+
+  private playBrowserSentence(s: string): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        const u = new SpeechSynthesisUtterance(s);
+        if (this.voice) u.voice = this.voice;
+        u.lang = "ru-RU"; u.rate = 0.97; u.pitch = 0.85;
+        u.onend = () => resolve();
+        u.onerror = () => resolve();
+        speechSynthesis.speak(u);
+      } catch { resolve(); }
+    });
+  }
+
+  // амплитуда реального аудио → открытие рта (настоящий липсинк, этаж Б)
+  private startMouth() {
+    if (this.mouthTimer || !this.analyser) return;
+    const data = new Uint8Array(this.analyser.frequencyBinCount);
+    this.mouthTimer = setInterval(() => {
+      if (!this.analyser) return;
+      this.analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+      const rms = Math.sqrt(sum / data.length);
+      this.ev.onMouth?.(Math.min(1, rms * 3.2)); // усиление до читаемого размаха
+    }, 40);
+  }
+
+  private stopMouth() {
+    if (this.mouthTimer) { clearInterval(this.mouthTimer); this.mouthTimer = null; }
+    this.ev.onMouth?.(0);
+  }
+
   private maybeFinishTurn() {
-    if (!this.streamDone || this.ttsQueue.length || speechSynthesis.speaking) return;
+    if (this.voiceMode === "live") {
+      if (!this.streamDone || this.liveJobs.length || this.livePlaying) return;
+    } else {
+      if (!this.streamDone || this.ttsQueue.length || speechSynthesis.speaking) return;
+    }
     this.finalizeAssistantHistory(false);
     this.setState("listening");
   }
@@ -374,11 +501,16 @@ export class JarviEngine {
   private lastCutSentence = "";
 
   private stopSpeech() {
-    this.ttsQueue = [];
     this.lastCutSentence = this.speakingNow; // что оборвали на полуслове
     this.cutMidSentence = !!this.speakingNow;
-    try { speechSynthesis.cancel(); } catch {}
     this.speakingNow = "";
+    // живой
+    this.liveJobs = [];
+    if (this.liveSource) { try { this.liveSource.onended = null; this.liveSource.stop(); } catch {} this.liveSource = null; }
+    this.stopMouth();
+    // браузерный
+    this.ttsQueue = [];
+    try { speechSynthesis.cancel(); } catch {}
   }
 
   /** В историю — ТОЛЬКО произнесённое (§5.2). */

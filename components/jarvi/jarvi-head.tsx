@@ -11,7 +11,7 @@ import type { JarviState } from "./jarvi-engine";
  * Рот этажа А — процедурный (speechSynthesis аудиопоток не отдаёт, §7 ТЗ).
  */
 
-export type JarviDriver = { state: JarviState };
+export type JarviDriver = { state: JarviState; mouth: number }; // mouth 0..1 (живой липсинк, этаж Б; <0 = режим не активен)
 
 const STATE_COLOR: Record<string, string> = {
   off: "#4a4434",
@@ -50,9 +50,13 @@ function Head({ driver }: { driver: React.MutableRefObject<JarviDriver> }) {
     curColor.lerp(new THREE.Color(STATE_COLOR[state] || STATE_COLOR.idle), 0.08);
     if (wireMat.current) wireMat.current.color.copy(curColor);
 
-    // рот: говорим → процедурная речь; слушаем → закрыт
+    // рот: живой режим (mouth>=0) → амплитуда реального аудио (настоящий липсинк);
+    // иначе процедурная речь по состоянию.
     let open = 0.05;
-    if (state === "speaking") {
+    const liveMouth = driver.current.mouth;
+    if (state === "speaking" && liveMouth >= 0) {
+      open = 0.06 + liveMouth * 0.6;
+    } else if (state === "speaking") {
       const a = Math.abs(Math.sin(time * 12.0));
       const b = 0.5 + 0.5 * Math.sin(time * 5.7 + 1.0);
       open = 0.08 + a * b * 0.5;
