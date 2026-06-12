@@ -16,7 +16,7 @@
  */
 
 const ALLOWED_ORIGINS = [
-  "https://verevpz.github.io",        // adjust to the real Pages origin
+  "https://verevpz-boop.github.io",   // real GitHub Pages origin
   "http://localhost:3000",            // local dev
   "http://localhost:4321",            // local static preview
 ];
