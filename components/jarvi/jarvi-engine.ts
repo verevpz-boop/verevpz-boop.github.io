@@ -108,21 +108,39 @@ export class JarviEngine {
     return !!(w.webkitSpeechRecognition || w.SpeechRecognition) && "speechSynthesis" in window;
   }
 
+  /** Перечитать config (URL туннеля мог ротироваться) и проверить мозг. */
+  private async resolveBrain(): Promise<boolean> {
+    try {
+      const cfg = await fetch("/jarvi-config.json?t=" + Date.now(), { cache: "no-store" }).then((r) => r.json());
+      const base = String(cfg.chatBase || "").replace(/\/$/, "");
+      if (!base) return false;
+      const h = await fetch(base + "/health", { signal: AbortSignal.timeout(6000) });
+      if (!h.ok) return false;
+      this.chatBase = base;
+      return true;
+    } catch { return false; }
+  }
+
+  /** Спим, но раз в 15с сами проверяем — не вернулся ли мозг (новый URL). */
+  private sleepTimer: ReturnType<typeof setTimeout> | null = null;
+  private goSleep() {
+    this.setState("sleeping");
+    if (this.sleepTimer) return;
+    const tick = async () => {
+      this.sleepTimer = null;
+      if (this.state !== "sleeping" || !this.recActive) return;
+      if (await this.resolveBrain()) { this.setState("listening"); return; }
+      this.sleepTimer = setTimeout(tick, 15_000);
+    };
+    this.sleepTimer = setTimeout(tick, 15_000);
+  }
+
   /** Запуск ИЗ КЛИКА (user activation: мик + разблокировка TTS). */
   async start(): Promise<void> {
     if (this.state !== "off" && this.state !== "sleeping" && this.state !== "denied") return;
 
-    // конфиг → база прокси
-    try {
-      const cfg = await fetch("/jarvi-config.json", { cache: "no-store" }).then((r) => r.json());
-      this.chatBase = String(cfg.chatBase || "").replace(/\/$/, "");
-    } catch { this.setState("sleeping"); return; }
-
-    // health = и проверка мозга, и прогрев TLS-соединения
-    try {
-      const h = await fetch(this.chatBase + "/health", { signal: AbortSignal.timeout(6000) });
-      if (!h.ok) throw new Error("health " + h.status);
-    } catch { this.setState("sleeping"); return; }
+    // конфиг → база прокси + проверка мозга (и прогрев TLS)
+    if (!(await this.resolveBrain())) { this.recActive = true; this.goSleep(); return; }
 
     // разблокировка speechSynthesis внутри жеста
     try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
@@ -151,6 +169,7 @@ export class JarviEngine {
     this.recActive = false;
     if (this.endpointTimer) { clearInterval(this.endpointTimer); this.endpointTimer = null; }
     if (this.warmTimer) { clearInterval(this.warmTimer); this.warmTimer = null; }
+    if (this.sleepTimer) { clearTimeout(this.sleepTimer); this.sleepTimer = null; }
     try { this.rec?.abort(); } catch {}
     this.rec = null;
     this.stopSpeech();
@@ -263,7 +282,9 @@ export class JarviEngine {
       if (!resp.ok || !resp.body) throw new Error("chat " + resp.status);
     } catch {
       if (ac.signal.aborted) return; // барж-ин — норма
-      this.setState("sleeping");
+      // мозг недоступен: URL туннеля мог ротироваться — перечитать config и повторить раз
+      if (await this.resolveBrain()) { this.askBrain(); return; }
+      this.goSleep();
       return;
     }
 
