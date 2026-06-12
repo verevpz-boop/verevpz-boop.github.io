@@ -29,6 +29,7 @@ const ENDPOINT_TICK = 90;
 const RESTART_DELAY_MS = 180;   // пауза перед рестартом распознавалки
 const BARGE_MIN_WORDS = 2;      // короче — не считаем перебиванием
 const ECHO_OVERLAP = 0.6;       // доля слов из своей реплики → это эхо
+const ECHO_TAIL_MS = 1800;      // после речи Джарви ещё столько держим эхо-щит (звук из колонок доходит с задержкой)
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -218,6 +219,7 @@ export class JarviEngine {
       await this.playBrowserSentence(text);
     }
     if (myTurn === this.turnId && this.state === "speaking") {
+      this.armEchoGuard(text);  // приветствие — самый частый источник само-эха (как на скрине Pavel'а)
       this.replyAllText = "";
       this.setState("listening");
     }
@@ -228,6 +230,7 @@ export class JarviEngine {
     if (this.endpointTimer) { clearInterval(this.endpointTimer); this.endpointTimer = null; }
     if (this.warmTimer) { clearInterval(this.warmTimer); this.warmTimer = null; }
     if (this.sleepTimer) { clearTimeout(this.sleepTimer); this.sleepTimer = null; }
+    this.echoGuardText = ""; this.echoGuardUntil = 0;
     try { this.rec?.abort(); } catch {}
     this.rec = null;
     this.stopSpeech();
@@ -254,9 +257,13 @@ export class JarviEngine {
       text = text.trim();
       if (!text || text === this.interim) return;
 
+      // ЕДИНЫЙ эхо-щит: ловит голос Джарви из колонок и во время речи, и в хвосте
+      // после неё (когда state уже "listening" — там раньше проверки не было → Джарви
+      // слышал сам себя и отвечал сам себе).
+      if (this.isEchoNow(text)) { this.interim = text; return; }
+
       if (this.state === "speaking" || this.state === "thinking") {
-        // голос поверх речи Джарви: эхо или перебивание?
-        if (this.isOwnEcho(text)) { this.interim = text; return; }
+        // не эхо, речь поверх Джарви → перебивание
         const words = normalize(text).split(" ").filter(Boolean);
         if (words.length >= BARGE_MIN_WORDS) {
           this.bargeIn();
@@ -551,19 +558,38 @@ export class JarviEngine {
     } else if (interrupted) {
       this.history.push({ role: "assistant", content: "[не успел ответить — перебили]" });
     }
+    // эхо-щит на хвост: при барж-ине НЕ ставим (пользователь уже говорит — заглушим его же)
+    if (!interrupted && said) this.armEchoGuard(said);
     this.spokenSentences = [];
     this.replyAllText = "";
   }
 
-  // ── ПЕРЕБИВАНИЕ ───────────────────────────────────────────────────
-  private isOwnEcho(heard: string): boolean {
-    const own = normalize(this.replyAllText);
-    if (!own) return false;
+  // ── ПЕРЕБИВАНИЕ / ЭХО-ЩИТ ─────────────────────────────────────────
+  private echoGuardText = "";   // последняя произнесённая реплика (для хвоста эха)
+  private echoGuardUntil = 0;   // до этого момента хвост ещё активен
+
+  /** Взвести эхо-щит после того, как Джарви договорил (не при барж-ине). */
+  private armEchoGuard(text: string) {
+    const t = (text || "").trim();
+    if (!t) return;
+    this.echoGuardText = t;
+    this.echoGuardUntil = performance.now() + ECHO_TAIL_MS;
+  }
+
+  /** Это голос самого Джарви из колонок? Сравниваем с тем, что он говорит СЕЙЧАС
+   *  (replyAllText) И с тем, что говорил только что (echoGuardText, пока активен хвост). */
+  private isEchoNow(heard: string): boolean {
+    const now = performance.now();
+    let guard = (this.state === "speaking" || this.state === "thinking") ? this.replyAllText : "";
+    if (now < this.echoGuardUntil) guard += " " + this.echoGuardText;
+    const own = normalize(guard);
+    if (!own.trim()) return false;
     const h = normalize(heard);
     if (!h) return true;
     if (own.includes(h)) return true;
-    const ownSet = new Set(own.split(" "));
+    const ownSet = new Set(own.split(" ").filter(Boolean));
     const words = h.split(" ").filter(Boolean);
+    if (!words.length) return true;
     const hit = words.filter((w) => ownSet.has(w)).length;
     return hit / words.length >= ECHO_OVERLAP;
   }
