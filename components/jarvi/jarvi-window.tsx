@@ -45,31 +45,10 @@ export function JarviWindow() {
     return () => engineRef.current?.stop();
   }, []);
 
-  // Приветствие после ПЕРВОГО касания страницы (решение Pavel'а 2026-06-05,
-  // autoplay-policy: внутри жеста TTS разрешён). Текст адаптирован под Джарви.
-  const greeted = useRef(false);
-  const greet = () => {
-    if (greeted.current) return;
-    greeted.current = true;
-    if (!JarviEngine.supported()) return;
-    try {
-      const u = new SpeechSynthesisUtterance(
-        "Здравствуйте. Чтобы поговорить со мной, нажмите кнопку и разрешите микрофон. Я отвечаю голосом, и меня можно перебивать, даже когда я говорю."
-      );
-      u.lang = "ru-RU";
-      u.rate = 0.97;
-      u.pitch = 0.85;
-      const ru = speechSynthesis.getVoices().filter((v) => v.lang?.toLowerCase().startsWith("ru"));
-      const v = ru.find((x) => /google/i.test(x.name)) || ru.find((x) => /dmitry|дмитрий|pavel|павел/i.test(x.name)) || ru[0];
-      if (v) u.voice = v;
-      speechSynthesis.cancel();
-      speechSynthesis.speak(u);
-    } catch { /* без приветствия — не страшно */ }
-  };
+  // Приветствие теперь проговаривает САМ движок после старта (engine.greet),
+  // голосом Джарви и с защитой эхо-фильтра — не обрывается и не уходит себе в микрофон.
 
   const start = () => {
-    greeted.current = true; // кнопка нажата — приветствие уже не нужно
-    try { speechSynthesis.cancel(); } catch {}
     if (!engineRef.current) {
       engineRef.current = new JarviEngine({
         onState: (s) => { driver.current.state = s; setState(s); },
@@ -87,7 +66,7 @@ export function JarviWindow() {
   const running = state !== "off" && state !== "sleeping" && state !== "denied";
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-sm bg-black" onPointerDown={greet}>
+    <div className="relative h-full w-full overflow-hidden rounded-sm bg-black">
       <JarviHeadCanvas driver={driver} />
 
       {/* имя */}

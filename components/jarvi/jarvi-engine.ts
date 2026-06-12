@@ -193,6 +193,34 @@ export class JarviEngine {
         fetch(this.chatBase + "/health", { cache: "no-store" }).catch(() => {});
     }, 25_000);
     this.setState("listening");
+    this.greet();  // Джарви здоровается голосом ПОСЛЕ старта (не по касанию — не обрывается)
+  }
+
+  /** Стартовое приветствие голосом Джарви. Идёт через голосовой путь (не браузерным
+   *  поверх), поэтому регистрируется в эхо-фильтре и не уходит само себе в мозг. */
+  private async greet() {
+    const text = "Здравствуйте. Я Джарви. Спрашивайте — и помните, меня можно перебивать.";
+    this.turnId++;
+    const myTurn = this.turnId;
+    this.replyAllText = text;     // эхо-фильтр: STT не примет приветствие за речь гостя
+    this.spokenSentences = [];
+    this.turnT0 = 0;              // приветствие в замер латентности не входит
+    this.setState("speaking");
+    this.ev.onSubtitle(text);
+    if (this.voiceMode === "live" && this.audioCtx) {
+      this.startMouth();
+      const buf = await this.fetchTts(text);
+      if (myTurn === this.turnId && this.state === "speaking") {
+        if (buf) await this.playBuffer(buf); else await this.playBrowserSentence(text);
+      }
+      this.stopMouth();
+    } else if (myTurn === this.turnId && this.state === "speaking") {
+      await this.playBrowserSentence(text);
+    }
+    if (myTurn === this.turnId && this.state === "speaking") {
+      this.replyAllText = "";
+      this.setState("listening");
+    }
   }
 
   stop(): void {
