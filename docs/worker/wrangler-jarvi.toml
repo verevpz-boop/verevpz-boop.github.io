@@ -1,0 +1,8 @@
+# Джарви-мозг (failover-цепочка Cerebras→Groq→Mistral→Gemini).
+# Деплой:  npx wrangler deploy -c wrangler-jarvi.toml
+# Секреты: npx wrangler secret put <NAME> --config wrangler-jarvi.toml
+#   CEREBRAS_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY, GEMINI_API_KEY
+name = "jarvi-brain"
+main = "jarvi-brain.js"
+compatibility_date = "2026-01-01"
+workers_dev = true
