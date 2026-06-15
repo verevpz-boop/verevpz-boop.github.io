@@ -318,8 +318,8 @@ function RoboticArm() {
     r.ready = true;
     fitted.current = false;
     if (typeof window !== "undefined") {
-      const nm: string[] = []; scene.traverse((o) => { if (o.name) nm.push(o.name); });
-      console.log("[ARM-DEBUG] found", { baseY: !!r.baseY, j1: !!r.j1, j2: !!r.j2, j3: !!r.j3, grab: !!r.grab }, "names", nm.length, nm.slice(0, 50));
+      (window as unknown as { __armScene?: THREE.Object3D }).__armScene = scene;
+      console.log("[ARM-DEBUG] found", { baseY: !!r.baseY, j1: !!r.j1, grab: !!r.grab });
     }
   }, [scene]);
 
