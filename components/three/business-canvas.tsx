@@ -226,7 +226,7 @@ useGLTF.preload(ARM_GLB);
 /* Fast-tune posing — adjust after screenshot, no logic changes needed. */
 const ARM_FIT_HEIGHT = 3.4;
 const ARM_POS = new THREE.Vector3(3.4, -1.9, 0.2);
-const ARM_EULER: [number, number, number] = [0, 0, 0];
+const ARM_EULER: [number, number, number] = [0, Math.PI / 2, 0]; // передом к монеткам (проверено вживую)
 
 /* Joint travel (radians) relative to the model's imported rest pose */
 const BASE_YAW_RANGE = 0.85;
@@ -353,8 +353,6 @@ function RoboticArm() {
 
     // publish gripper-tip world position so the grabbed coin can stick to it
     if (r.grab) r.grab.getWorldPosition(armShared.tipWorld);
-
-    if (typeof window !== "undefined") (window as unknown as { __armRoot?: THREE.Object3D }).__armRoot = g;
 
     // Рука — герой страницы, замирать НЕ должна. При prefers-reduced-motion
     // глушим амплитуду idle-качки (calm), но движение и реакция на курсор
