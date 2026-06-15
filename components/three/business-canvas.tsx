@@ -614,6 +614,17 @@ export function BusinessCanvas() {
     return () => { navigateTo = null; };
   }, [router]);
 
+  // 🔴 R3F иногда измеряет fixed-контейнер как дефолтные 300×150 при монтировании
+  // (рейс react-use-measure) → канвас не на весь экран, рука уезжает за кадр и
+  // кажется мёртвой. Пинок resize после layout заставляет R3F пересчитать на
+  // полный размер. Проверено вживую: 300×150 → весь экран.
+  useEffect(() => {
+    const fire = () => window.dispatchEvent(new Event("resize"));
+    const r = requestAnimationFrame(fire);
+    const t = setTimeout(fire, 200);
+    return () => { cancelAnimationFrame(r); clearTimeout(t); };
+  }, []);
+
   return (
     <div
       className="fixed inset-0"
