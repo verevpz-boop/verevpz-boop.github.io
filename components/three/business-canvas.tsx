@@ -354,6 +354,8 @@ function RoboticArm() {
     // publish gripper-tip world position so the grabbed coin can stick to it
     if (r.grab) r.grab.getWorldPosition(armShared.tipWorld);
 
+    if (typeof window !== "undefined") (window as unknown as { __armRoot?: THREE.Object3D }).__armRoot = g;
+
     // Рука — герой страницы, замирать НЕ должна. При prefers-reduced-motion
     // глушим амплитуду idle-качки (calm), но движение и реакция на курсор
     // остаются — иначе на машинах с выключенной анимацией рука стоит мёртвой
