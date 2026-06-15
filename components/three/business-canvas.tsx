@@ -275,6 +275,7 @@ function RoboticArm() {
   const fitted = useRef(false);
   const grabTimer = useRef(0);
   const grip = useRef(0); // 0 раскрыт, 1 сомкнут
+  const frameDbg = useRef(0);
 
   useEffect(() => {
     // Lighter blued steel so the metal reads without an env-map (Pavel: brighter).
@@ -297,11 +298,18 @@ function RoboticArm() {
     });
 
     const r = rig.current;
-    r.baseY = scene.getObjectByName("Base Y Rotation") ?? undefined;
-    r.j1 = scene.getObjectByName("1 Hand X rotation") ?? undefined;
-    r.j2 = scene.getObjectByName("2 Hand X Rotation") ?? undefined;
-    r.j3 = scene.getObjectByName("3 Hand X Rotate") ?? undefined;
-    r.grab = scene.getObjectByName("Grab") ?? undefined;
+    const pick = (exact: string, ...subs: string[]): THREE.Object3D | undefined => {
+      let o = scene.getObjectByName(exact) as THREE.Object3D | undefined;
+      if (!o) scene.traverse((n) => {
+        if (!o && n.name && subs.some((s) => n.name.toLowerCase().includes(s))) o = n;
+      });
+      return o;
+    };
+    r.baseY = pick("Base Y Rotation", "base y");
+    r.j1 = pick("1 Hand X rotation", "1 hand");
+    r.j2 = pick("2 Hand X Rotation", "2 hand");
+    r.j3 = pick("3 Hand X Rotate", "3 hand");
+    r.grab = pick("Grab", "grab");
     r.f1 = scene.getObjectByName("1") ?? undefined; // палец гриппера (лезвие −Y)
     r.f2 = scene.getObjectByName("2") ?? undefined; // палец гриппера (лезвие +Y)
     [r.baseY, r.j1, r.j2, r.j3, r.f1, r.f2].forEach((o) => {
@@ -309,6 +317,10 @@ function RoboticArm() {
     });
     r.ready = true;
     fitted.current = false;
+    if (typeof window !== "undefined") {
+      const nm: string[] = []; scene.traverse((o) => { if (o.name) nm.push(o.name); });
+      console.log("[ARM-DEBUG] found", { baseY: !!r.baseY, j1: !!r.j1, j2: !!r.j2, j3: !!r.j3, grab: !!r.grab }, "names", nm.length, nm.slice(0, 50));
+    }
   }, [scene]);
 
   useFrame((state, delta) => {
@@ -354,6 +366,9 @@ function RoboticArm() {
 
     // ─── state machine ───
     const phase = armShared.phase;
+    if (typeof window !== "undefined" && frameDbg.current++ % 120 === 0) {
+      console.log("[ARM-FRAME]", { t: +state.clock.elapsedTime.toFixed(2), ready: r.ready, hasBaseY: !!r.baseY, baseYy: r.baseY ? +r.baseY.rotation.y.toFixed(3) : null, phase });
+    }
     if (phase === "seek") {
       if (clicked) {
         // nearest coin to cursor in screen space
