@@ -49,7 +49,7 @@ function CreatorRing({ radius }: { radius: number }) {
         map={texture}
         transparent
         opacity={0.92}
-        side={THREE.DoubleSide}
+        side={THREE.FrontSide}
         depthWrite={false}
         toneMapped={false}
       />
