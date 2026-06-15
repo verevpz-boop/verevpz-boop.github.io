@@ -153,10 +153,11 @@ function Coin({ d, idx }: { d: CD; idx: number }) {
   const local = useRef({ scale: d.sc, rx: d.tilt, ry: 0 });
 
   useFrame(({ clock }) => {
-    if (!ref.current || prefersReducedMotion) return;
+    if (!ref.current) return;
     const t = clock.elapsedTime;
     const selected = armShared.grabbedIdx === idx;
     const l = local.current;
+    const calm = prefersReducedMotion ? 0.4 : 1;
 
     if (selected && armShared.phase === "reach") {
       coinWorldPositions[idx].copy(ref.current.position);
@@ -186,14 +187,14 @@ function Coin({ d, idx }: { d: CD; idx: number }) {
     const depth = 1 - Math.abs(d.z) / 4;
     const px = 0.15 + depth * 0.35;
     const wx = d.x + mouseNDC.x * px;
-    const wy = d.y + Math.sin(t * d.fs + d.ph) * d.fa + mouseNDC.y * px * 0.4;
+    const wy = d.y + Math.sin(t * d.fs + d.ph) * d.fa * calm + mouseNDC.y * px * 0.4;
     ref.current.position.set(wx, wy, d.z);
     coinWorldPositions[idx].set(wx, wy, d.z);
     l.scale = THREE.MathUtils.lerp(l.scale, d.sc, 0.1);
     ref.current.scale.setScalar(l.scale);
     if (faceMat.emissiveIntensity > 0.001) faceMat.emissiveIntensity *= 0.9;
-    l.ry = t * d.rs;
-    l.rx = d.tilt + Math.sin(t * 0.2 + d.ph) * 0.12;
+    l.ry = t * d.rs * calm;
+    l.rx = d.tilt + Math.sin(t * 0.2 + d.ph) * 0.12 * calm;
     ref.current.rotation.set(l.rx, l.ry, 0);
   });
 
@@ -340,7 +341,11 @@ function RoboticArm() {
     // publish gripper-tip world position so the grabbed coin can stick to it
     if (r.grab) r.grab.getWorldPosition(armShared.tipWorld);
 
-    if (prefersReducedMotion) return;
+    // Рука — герой страницы, замирать НЕ должна. При prefers-reduced-motion
+    // глушим амплитуду idle-качки (calm), но движение и реакция на курсор
+    // остаются — иначе на машинах с выключенной анимацией рука стоит мёртвой
+    // (это и был баг: «стоит статично, не реагирует на мышку»).
+    const calm = prefersReducedMotion ? 0.4 : 1;
     const dt = Math.min(delta, 0.05);
     const step = Math.min(0.5, (1 - Math.pow(0.0001, dt)) * 1.7);
 
@@ -404,10 +409,10 @@ function RoboticArm() {
       // Всегда живой: непрерывная серво-качка (sin по времени) + реакция на курсор
       // сверху. Так рука двигается даже когда мышь неподвижна.
       const t = state.clock.elapsedTime;
-      const idleY = Math.sin(t * 0.45) * 0.5;
-      const idleJ1 = Math.sin(t * 0.4 + 0.6) * 0.22;
-      const idleJ2 = Math.sin(t * 0.5 + 1.2) * 0.26;
-      const idleJ3 = Math.sin(t * 0.65 + 0.3) * 0.18;
+      const idleY = Math.sin(t * 0.45) * 0.5 * calm;
+      const idleJ1 = Math.sin(t * 0.4 + 0.6) * 0.22 * calm;
+      const idleJ2 = Math.sin(t * 0.5 + 1.2) * 0.26 * calm;
+      const idleJ3 = Math.sin(t * 0.65 + 0.3) * 0.18 * calm;
       setRel(r.baseY, "y", idleY + mouseNDC.x * BASE_YAW_RANGE * 0.5);
       setRel(r.j1, "x", idleJ1 + (reach - 0.4) * J1_RANGE * 0.5);
       setRel(r.j2, "x", idleJ2 + (0.5 - reach) * J2_RANGE * 0.5);
