@@ -283,14 +283,25 @@ function RoboticArm() {
     const dark = new THREE.MeshStandardMaterial({ color: "#34373f", metalness: 0.8, roughness: 0.5 });
     const accent = new THREE.MeshStandardMaterial({ color: "#C9A961", metalness: 0.92, roughness: 0.16 });
 
+    // 🔴 GLTFLoader заменяет пробелы в именах нод на «_» (Base Y Rotation →
+    // Base_Y_Rotation) → getObjectByName с пробелами НЕ находил ничего, рука
+    // стояла мёртвой. Ищем по нормализованному имени (пробел/подчёркивание/регистр = всё равно).
+    const norm = (s: string) => s.toLowerCase().replace(/[\s_]+/g, "");
+    const find = (target: string): THREE.Object3D | undefined => {
+      const t = norm(target);
+      let f: THREE.Object3D | undefined;
+      scene.traverse((o) => { if (!f && o.name && norm(o.name) === t) f = o; });
+      return f;
+    };
+
     ["UI", "Floor", "Camera", "Target", "Sphere Clones",
       "Directional Light", "Directional Light 2", "Default Ambient Light"]
-      .forEach((n) => { const o = scene.getObjectByName(n); o?.parent?.remove(o); });
+      .forEach((n) => { const o = find(n); o?.parent?.remove(o); });
 
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
-      const nm = (o.name || "").toLowerCase();
+      const nm = norm(o.name || "");
       if (nm === "1" || nm === "2") m.material = dark;
       else if (nm.includes("ellipse")) m.material = accent;
       else m.material = blued;
@@ -298,20 +309,13 @@ function RoboticArm() {
     });
 
     const r = rig.current;
-    const pick = (exact: string, ...subs: string[]): THREE.Object3D | undefined => {
-      let o = scene.getObjectByName(exact) as THREE.Object3D | undefined;
-      if (!o) scene.traverse((n) => {
-        if (!o && n.name && subs.some((s) => n.name.toLowerCase().includes(s))) o = n;
-      });
-      return o;
-    };
-    r.baseY = pick("Base Y Rotation", "base y");
-    r.j1 = pick("1 Hand X rotation", "1 hand");
-    r.j2 = pick("2 Hand X Rotation", "2 hand");
-    r.j3 = pick("3 Hand X Rotate", "3 hand");
-    r.grab = pick("Grab", "grab");
-    r.f1 = scene.getObjectByName("1") ?? undefined; // палец гриппера (лезвие −Y)
-    r.f2 = scene.getObjectByName("2") ?? undefined; // палец гриппера (лезвие +Y)
+    r.baseY = find("Base Y Rotation");
+    r.j1 = find("1 Hand X rotation");
+    r.j2 = find("2 Hand X Rotation");
+    r.j3 = find("3 Hand X Rotate");
+    r.grab = find("Grab");
+    r.f1 = find("1"); // палец гриппера (лезвие −Y)
+    r.f2 = find("2"); // палец гриппера (лезвие +Y)
     [r.baseY, r.j1, r.j2, r.j3, r.f1, r.f2].forEach((o) => {
       if (o) r.rest.set(o, { x: o.rotation.x, y: o.rotation.y, z: o.rotation.z });
     });
