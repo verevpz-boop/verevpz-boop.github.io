@@ -16,22 +16,21 @@ const SPIN = -((2 * Math.PI) / SPIN_PERIOD);
  */
 function CreatorRing({ radius }: { radius: number }) {
   const texture = useMemo(() => {
-    const REPS = 8;
+    const REPS = 6;
     const canvas = document.createElement("canvas");
-    canvas.width = 2048;
-    canvas.height = 128;
+    canvas.width = 4096;
+    canvas.height = 160;
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#C9A961";
-    ctx.font = '700 74px Georgia, "Times New Roman", serif';
+    ctx.font = '700 84px Georgia, "Times New Roman", serif';
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
     const step = canvas.width / REPS;
     for (let i = 0; i < REPS; i++) {
-      ctx.fillText("AI  CREATOR", (i + 0.5) * step, canvas.height / 2);
-      ctx.fillStyle = "rgba(201,169,97,0.55)";
-      ctx.fillText("•", i * step, canvas.height / 2);
       ctx.fillStyle = "#C9A961";
+      ctx.fillText("AI CREATOR", (i + 0.5) * step, canvas.height / 2);
+      ctx.fillStyle = "rgba(201,169,97,0.4)";
+      ctx.fillText("·", i * step, canvas.height / 2);
     }
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -44,7 +43,7 @@ function CreatorRing({ radius }: { radius: number }) {
   const r = radius * 1.04;
   return (
     <mesh>
-      <cylinderGeometry args={[r, r, radius * 0.3, 160, 1, true]} />
+      <cylinderGeometry args={[r, r, radius * 0.2, 160, 1, true]} />
       <meshBasicMaterial
         map={texture}
         transparent
