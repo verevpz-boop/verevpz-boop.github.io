@@ -4,6 +4,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import { useRouter } from "next/navigation";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 const prefersReducedMotion =
   typeof window !== "undefined" &&
@@ -278,9 +279,10 @@ function RoboticArm() {
 
   useEffect(() => {
     // Lighter blued steel so the metal reads without an env-map (Pavel: brighter).
-    const blued = new THREE.MeshStandardMaterial({ color: "#5b5f6a", metalness: 0.7, roughness: 0.48 });
-    const dark = new THREE.MeshStandardMaterial({ color: "#34373f", metalness: 0.8, roughness: 0.5 });
-    const accent = new THREE.MeshStandardMaterial({ color: "#C9A961", metalness: 0.92, roughness: 0.16 });
+    // Блестящий полированный металл. Отражения даёт StudioEnv (scene.environment).
+    const blued = new THREE.MeshStandardMaterial({ color: "#9aa0ab", metalness: 1.0, roughness: 0.2, envMapIntensity: 1.15 });
+    const dark = new THREE.MeshStandardMaterial({ color: "#3c424c", metalness: 1.0, roughness: 0.32, envMapIntensity: 1.0 });
+    const accent = new THREE.MeshStandardMaterial({ color: "#C9A961", metalness: 1.0, roughness: 0.13, envMapIntensity: 1.25 });
 
     // 🔴 GLTFLoader заменяет пробелы в именах нод на «_» (Base Y Rotation →
     // Base_Y_Rotation) → getObjectByName с пробелами НЕ находил ничего, рука
@@ -580,10 +582,25 @@ function BearBrickModel() {
   );
 }
 
+/* ─── studio reflections (локальная среда, без внешних CDN) ───────────────
+ * Металл без отражений читается чёрным. RoomEnvironment (бандл three, не сеть)
+ * через PMREM даёт мягкие студийные блики → рука блестит как полированная сталь. */
+function StudioEnv() {
+  const { scene, gl } = useThree();
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = env;
+    return () => { scene.environment = null; env.dispose(); pmrem.dispose(); };
+  }, [scene, gl]);
+  return null;
+}
+
 /* ─── scene ───────────────────────────────────────────────────────────── */
 function Scene() {
   return (
     <>
+      <StudioEnv />
       <MouseTracker />
       <JsonPointerCatcher />
       {/* Lifted exposure — Pavel: business scene was too dark, brighten it. */}
