@@ -235,6 +235,10 @@ const J3_RANGE = 0.5;
 /* Present pose offsets (relative to rest) — raise the held coin toward camera */
 const PRESENT = { j1: 0.55, j2: -0.7, j3: 0.35 };
 
+/* Насколько пальцы гриппера (1/2) смыкаются на хвате (радианы, навстречу).
+ * Ось X — лучший расчёт по ригу; если пальцы пойдут не туда — флип знака здесь. */
+const GRIP_CLOSE = 0.32;
+
 const armClick = { fired: false };
 
 const armShared = {
@@ -261,12 +265,15 @@ function RoboticArm() {
     j2?: THREE.Object3D;
     j3?: THREE.Object3D;
     grab?: THREE.Object3D;
+    f1?: THREE.Object3D;
+    f2?: THREE.Object3D;
     rest: Map<THREE.Object3D, { x: number; y: number; z: number }>;
     ready: boolean;
   }>({ rest: new Map(), ready: false });
 
   const fitted = useRef(false);
   const grabTimer = useRef(0);
+  const grip = useRef(0); // 0 раскрыт, 1 сомкнут
 
   useEffect(() => {
     // Lighter blued steel so the metal reads without an env-map (Pavel: brighter).
@@ -294,7 +301,9 @@ function RoboticArm() {
     r.j2 = scene.getObjectByName("2 Hand X Rotation") ?? undefined;
     r.j3 = scene.getObjectByName("3 Hand X Rotate") ?? undefined;
     r.grab = scene.getObjectByName("Grab") ?? undefined;
-    [r.baseY, r.j1, r.j2, r.j3].forEach((o) => {
+    r.f1 = scene.getObjectByName("1") ?? undefined; // палец гриппера (лезвие −Y)
+    r.f2 = scene.getObjectByName("2") ?? undefined; // палец гриппера (лезвие +Y)
+    [r.baseY, r.j1, r.j2, r.j3, r.f1, r.f2].forEach((o) => {
       if (o) r.rest.set(o, { x: o.rotation.x, y: o.rotation.y, z: o.rotation.z });
     });
     r.ready = true;
@@ -404,6 +413,13 @@ function RoboticArm() {
       setRel(r.j2, "x", idleJ2 + (0.5 - reach) * J2_RANGE * 0.5);
       setRel(r.j3, "x", idleJ3 + (reach - 0.5) * J3_RANGE * 0.5);
     }
+
+    // ─── гриппер: пальцы смыкаются на хвате, раскрываются в seek ───
+    const wantClosed = phase === "grab" || phase === "present";
+    grip.current = THREE.MathUtils.lerp(grip.current, wantClosed ? 1 : 0, 0.18);
+    const gc = grip.current * GRIP_CLOSE;
+    if (r.f1) { const rf = r.rest.get(r.f1); if (rf) r.f1.rotation.x = rf.x + gc; }
+    if (r.f2) { const rf = r.rest.get(r.f2); if (rf) r.f2.rotation.x = rf.x - gc; }
   });
 
   return (
