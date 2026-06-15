@@ -275,7 +275,6 @@ function RoboticArm() {
   const fitted = useRef(false);
   const grabTimer = useRef(0);
   const grip = useRef(0); // 0 раскрыт, 1 сомкнут
-  const frameDbg = useRef(0);
 
   useEffect(() => {
     // Lighter blued steel so the metal reads without an env-map (Pavel: brighter).
@@ -321,10 +320,6 @@ function RoboticArm() {
     });
     r.ready = true;
     fitted.current = false;
-    if (typeof window !== "undefined") {
-      (window as unknown as { __armScene?: THREE.Object3D }).__armScene = scene;
-      console.log("[ARM-DEBUG] found", { baseY: !!r.baseY, j1: !!r.j1, grab: !!r.grab });
-    }
   }, [scene]);
 
   useFrame((state, delta) => {
@@ -370,9 +365,6 @@ function RoboticArm() {
 
     // ─── state machine ───
     const phase = armShared.phase;
-    if (typeof window !== "undefined" && frameDbg.current++ % 120 === 0) {
-      console.log("[ARM-FRAME]", { t: +state.clock.elapsedTime.toFixed(2), ready: r.ready, hasBaseY: !!r.baseY, baseYy: r.baseY ? +r.baseY.rotation.y.toFixed(3) : null, phase });
-    }
     if (phase === "seek") {
       if (clicked) {
         // nearest coin to cursor in screen space
