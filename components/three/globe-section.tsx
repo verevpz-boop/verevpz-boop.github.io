@@ -1,18 +1,8 @@
 "use client";
 import dynamic from "next/dynamic";
 import { motion } from "motion/react";
-import { MagneticLink } from "@/components/ui/magnetic-link";
 import { WorksFeed } from "@/components/ui/works-feed";
-
-const SECTIONS = [
-  { label: "Fashion", href: "/fashion" },
-  { label: "Tech",    href: "/tech"    },
-  { label: "Cinema",  href: "/cinema"  },
-  { label: "Gaming",  href: "/gaming"  },
-  { label: "AI-Bots", href: "/ai-bots" },
-  { label: "TikTok",  href: "/tiktok"  },
-  { label: "Business", href: "/business" }, // Business всегда последним
-];
+import { EntryDoors } from "@/components/ui/entry-doors";
 
 const GlobeCanvasDynamic = dynamic(
   () => import("./globe-canvas").then((m) => m.GlobeCanvas),
@@ -77,25 +67,8 @@ export function GlobeSection() {
         <GlobeCanvasDynamic />
       </motion.div>
 
-      {/* ── Text navigation ─────────────────────────────────── */}
-      <motion.div
-        className="pointer-events-auto absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-x-3 text-sm sm:text-base"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 1.0 }}
-        style={{ letterSpacing: "0.15em" }}
-      >
-        {SECTIONS.map((s, i) => (
-          <span key={s.href} className="flex items-center gap-x-3">
-            <MagneticLink href={s.href} radius={50} maxShift={8}>
-              {s.label}
-            </MagneticLink>
-            {i < SECTIONS.length - 1 && (
-              <span style={{ color: "rgba(255,255,255,0.3)", userSelect: "none" }}>·</span>
-            )}
-          </span>
-        ))}
-      </motion.div>
+      {/* ── Две двери — главная развилка (Работы / Студия) ───────── */}
+      <EntryDoors />
 
       {/* ── Bottom signature ────────────────────────────────── */}
       <motion.div
