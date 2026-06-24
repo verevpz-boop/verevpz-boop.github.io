@@ -1,4 +1,5 @@
 {
   "chatBase": "https://jarvi-brain.pzverev.workers.dev",
-  "voice": "browser"
+  "sttBase": "https://jarvi-brain.pzverev.workers.dev",
+  "voice": "live"
 }

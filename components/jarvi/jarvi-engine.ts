@@ -1,14 +1,17 @@
 /**
  * Джарви — разговорный движок (без React): слух → мозг → голос → перебивание.
  *
- * Конструкция по docs/TZ_JARVI.md §4-5:
- *  - STT: Web Speech API, continuous, СУПЕРВИЗОР с авторестартом (сессии мрут сами).
- *  - Endpointing СВОЙ: interim не меняется ~320мс → фраза готова (ждать isFinal = +500-900мс).
+ * Конструкция по docs/TZ_JARVI.md §4-5 и docs/JARVI_BUILD_ROADMAP.md:
+ *  - СЛУХ: VAD в браузере (Silero, @ricky0123/vad-web) ловит реплику гостя,
+ *    кусок аудио уходит на Whisper (Cloudflare Workers AI) → текст. Web Speech
+ *    ВЫКИНУТ (нет на iPhone/Firefox + облако Google недоступно под VPN). Работает
+ *    у любого зрителя с телефона: ПК и туннели не участвуют.
+ *  - Перебивание: VAD onSpeechStart срабатывает локально и МГНОВЕННО → cancel+abort.
+ *    Защита от самоперебивания — эхоподавление Chrome (живой голос играет через
+ *    WebAudio → AEC вычитает его из микрофона) + ТЕКСТОВЫЙ бэкап-фильтр.
  *  - Мозг: SSE-стрим прокси (ключ на сервере), delta.reasoning игнорируется.
- *  - Голос: speechSynthesis ПО ПРЕДЛОЖЕНИЯМ (история = только произнесённое;
- *    обходит баг ~15с и не-стреляющий onboundary сетевых голосов).
- *  - Барж-ин: <50мс cancel + abort. Защита от самоперебивания — ТЕКСТОВЫЙ фильтр
- *    (AEC не вычитает SAPI-голоса): услышанное сравнивается со своей текущей репликой.
+ *  - Голос: живой нейро-TTS (/tts) через AudioContext ИЛИ браузерный фоллбэк,
+ *    по предложениям (история = только произнесённое).
  */
 
 export type JarviState = "off" | "idle" | "listening" | "thinking" | "speaking" | "sleeping" | "denied";
@@ -16,7 +19,7 @@ export type JarviState = "off" | "idle" | "listening" | "thinking" | "speaking" 
 export interface JarviEvents {
   onState: (s: JarviState) => void;
   onSubtitle: (text: string) => void;      // что Джарви говорит (последняя реплика)
-  onUserText: (text: string) => void;      // что слышим от гостя (interim)
+  onUserText: (text: string) => void;      // что слышим от гостя (распознанная реплика)
   onLatency?: (ms: number) => void;        // «замолчал → первый звук» (замер ≤1с)
   onMouth?: (open: number) => void;        // 0..1 открытие рта (живой липсинк, этаж Б)
 }
@@ -24,23 +27,19 @@ export interface JarviEvents {
 type VoiceMode = "browser" | "live";
 type LiveJob = { text: string; audio: Promise<AudioBuffer | null> };
 
-const ENDPOINT_MS = 320;        // тишина interim → фраза готова
-const ENDPOINT_TICK = 90;
-const RESTART_DELAY_MS = 180;   // пауза перед рестартом распознавалки
-const BARGE_MIN_WORDS = 2;      // короче — не считаем перебиванием
+// ── СЛУХ (VAD): пути к ассетам модели на CDN (под версии в package.json) ──
+const VAD_VER = "0.0.30";
+const ORT_VER = "1.26.0";
+const VAD_ASSETS = `https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@${VAD_VER}/dist/`;
+const ORT_WASM = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VER}/dist/`;
+
 const ECHO_OVERLAP = 0.6;       // доля слов из своей реплики → это эхо
 const ECHO_TAIL_MS = 1800;      // после речи Джарви ещё столько держим эхо-щит (звук из колонок доходит с задержкой)
 
 type Msg = { role: "user" | "assistant"; content: string };
 
-// ── минимальные типы Web Speech (в TS их нет) ──
-type SR = {
-  lang: string; continuous: boolean; interimResults: boolean; maxAlternatives: number;
-  onresult: ((e: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean; length: number }> }) => void) | null;
-  onend: (() => void) | null;
-  onerror: ((e: { error: string }) => void) | null;
-  start(): void; stop(): void; abort(): void;
-};
+// минимальный тип инстанса VAD (типы либы подтягиваются динамическим импортом)
+type VadInstance = { start: () => void; pause: () => void; destroy?: () => void };
 
 function normalize(s: string): string {
   return s.toLowerCase().replace(/ё/g, "е").replace(/[^a-zа-я0-9\s]/gi, " ").replace(/\s+/g, " ").trim();
@@ -70,17 +69,42 @@ function splitSentences(buf: string): { ready: string[]; rest: string } {
   return { ready, rest };
 }
 
+/** Float32 @16кГц (от VAD) → WAV PCM16 → base64 (вход Whisper). */
+function floatToWavBase64(samples: Float32Array, sampleRate = 16000): string {
+  const len = samples.length;
+  const buf = new ArrayBuffer(44 + len * 2);
+  const dv = new DataView(buf);
+  const wstr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(off + i, s.charCodeAt(i)); };
+  wstr(0, "RIFF"); dv.setUint32(4, 36 + len * 2, true); wstr(8, "WAVE");
+  wstr(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sampleRate, true); dv.setUint32(28, sampleRate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  wstr(36, "data"); dv.setUint32(40, len * 2, true);
+  let off = 44;
+  for (let i = 0; i < len; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    dv.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  // base64 без раздувания стека: по кускам
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+  }
+  return btoa(bin);
+}
+
 export class JarviEngine {
   private ev: JarviEvents;
   private state: JarviState = "off";
   private chatBase = "";
+  private sttBase = "";
 
-  private rec: SR | null = null;
-  private recActive = false;          // желаемое состояние распознавалки
-  private recRunning = false;         // фактическое
-  private interim = "";
-  private interimChangedAt = 0;
-  private endpointTimer: ReturnType<typeof setInterval> | null = null;
+  private vad: VadInstance | null = null;
+  private hearWanted = false;          // желаемое состояние слуха
+  private sttInFlight = false;         // транскрипция уже летит (не плодим параллель)
+  private micStream: MediaStream | null = null;  // постоянный эхоочищенный поток
   private warmTimer: ReturnType<typeof setInterval> | null = null; // держим TLS-коннект тёплым
 
   private history: Msg[] = [];
@@ -94,12 +118,13 @@ export class JarviEngine {
   private streamDone = false;
   private cutMidSentence = false;
 
-  // ── живой голос (этаж Б): Silero WAV через /tts → AudioContext + анализатор ──
+  // ── живой голос (этаж Б): /tts → AudioContext + анализатор ──
   private voiceMode: VoiceMode = "browser";
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private liveJobs: LiveJob[] = [];
   private liveSource: AudioBufferSourceNode | null = null;
+  private liveResolve: (() => void) | null = null;  // резолвер текущего playBuffer (разблокировать при барж-ине)
   private livePlaying = false;
   private mouthTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -112,24 +137,37 @@ export class JarviEngine {
 
   private setState(s: JarviState) {
     if (this.state === s) return;
+    this.trace("state " + this.state + "→" + s);
     this.state = s;
     this.ev.onState(s);
   }
 
+  /** Диагностическая трасса в window.__jtrace (кольцо на 300). Снять при проде. */
+  private trace(msg: string) {
+    if (typeof window === "undefined") return;
+    const w = window as unknown as { __jtrace?: string[] };
+    const arr = (w.__jtrace = w.__jtrace || []);
+    arr.push(Math.round(performance.now()) + "  " + msg);
+    if (arr.length > 300) arr.shift();
+  }
+
   static supported(): boolean {
     if (typeof window === "undefined") return false;
-    const w = window as unknown as Record<string, unknown>;
-    return !!(w.webkitSpeechRecognition || w.SpeechRecognition) && "speechSynthesis" in window;
+    const hasMic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    const hasAudio = !!(window.AudioContext || (window as unknown as { webkitAudioContext?: unknown }).webkitAudioContext);
+    return hasMic && hasAudio; // VAD+Whisper работают везде, где есть мик и WebAudio (вкл. iOS Safari)
   }
 
   private cfgVoice: VoiceMode = "browser";
 
-  /** Перечитать config (URL туннеля мог ротироваться) и проверить мозг. */
+  /** Перечитать config (URL мозга мог смениться) и проверить мозг. */
   private async resolveBrain(): Promise<boolean> {
     try {
       const cfg = await fetch("/jarvi-config.json?t=" + Date.now(), { cache: "no-store" }).then((r) => r.json());
       const base = String(cfg.chatBase || "").replace(/\/$/, "");
       if (!base) return false;
+      // слух всегда на Cloudflare-Whisper; sttBase из config, иначе — тот же base
+      this.sttBase = String(cfg.sttBase || base).replace(/\/$/, "");
       const h = await fetch(base + "/health", { signal: AbortSignal.timeout(6000) }).then((r) => r.json());
       if (!h.ok) return false;
       this.chatBase = base;
@@ -139,14 +177,14 @@ export class JarviEngine {
     } catch { return false; }
   }
 
-  /** Спим, но раз в 15с сами проверяем — не вернулся ли мозг (новый URL). */
+  /** Спим, но раз в 15с сами проверяем — не вернулся ли мозг. */
   private sleepTimer: ReturnType<typeof setTimeout> | null = null;
   private goSleep() {
     this.setState("sleeping");
     if (this.sleepTimer) return;
     const tick = async () => {
       this.sleepTimer = null;
-      if (this.state !== "sleeping" || !this.recActive) return;
+      if (this.state !== "sleeping" || !this.hearWanted) return;
       if (await this.resolveBrain()) { this.setState("listening"); return; }
       this.sleepTimer = setTimeout(tick, 15_000);
     };
@@ -158,7 +196,7 @@ export class JarviEngine {
     if (this.state !== "off" && this.state !== "sleeping" && this.state !== "denied") return;
 
     // конфиг → база прокси + проверка мозга (и прогрев TLS)
-    if (!(await this.resolveBrain())) { this.recActive = true; this.goSleep(); return; }
+    if (!(await this.resolveBrain())) { this.hearWanted = true; this.goSleep(); return; }
 
     // голосовой режим из config; AudioContext создаём ВНУТРИ жеста (иначе suspended)
     this.voiceMode = this.cfgVoice;
@@ -176,18 +214,20 @@ export class JarviEngine {
     // разблокировка speechSynthesis внутри жеста (нужна и как фоллбэк живого режима)
     try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
     this.pickVoice();
-    if (speechSynthesis.onvoiceschanged === null) speechSynthesis.onvoiceschanged = () => this.pickVoice();
+    if (typeof speechSynthesis !== "undefined" && speechSynthesis.onvoiceschanged === null)
+      speechSynthesis.onvoiceschanged = () => this.pickVoice();
 
-    // микрофон: явный запрос с echoCancellation (сам поток не используем —
-    // распознавалке он не передаётся, но разрешение получаем в жесте)
+    // эхоочищенный микрофон: ДЕРЖИМ поток открытым, его же кормим VAD'у.
+    // echoCancellation вычитает голос Джарви (он играет через WebAudio) → петля
+    // «сам с собой» умирает, а живой голос гостя проходит → перебивание живёт.
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      stream.getTracks().forEach((t) => t.stop());
+      this.micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     } catch { this.setState("denied"); return; }
 
-    this.recActive = true;
-    this.startRecognition();
-    this.endpointTimer = setInterval(() => this.checkEndpoint(), ENDPOINT_TICK);
+    this.hearWanted = true;
+    const ok = await this.startHearing();
+    if (!ok) { this.setState("denied"); return; }
+
     // тёплый пинг: без него туннель/TLS остывает и первый ответ дорожает на сотни мс
     this.warmTimer = setInterval(() => {
       if (this.state === "listening" || this.state === "idle")
@@ -197,8 +237,7 @@ export class JarviEngine {
     this.greet();  // Джарви здоровается голосом ПОСЛЕ старта (не по касанию — не обрывается)
   }
 
-  /** Стартовое приветствие голосом Джарви. Идёт через голосовой путь (не браузерным
-   *  поверх), поэтому регистрируется в эхо-фильтре и не уходит само себе в мозг. */
+  /** Стартовое приветствие голосом Джарви. */
   private async greet() {
     const text = "Здравствуйте. Я Джарви. Спрашивайте — и помните, меня можно перебивать.";
     this.turnId++;
@@ -219,108 +258,108 @@ export class JarviEngine {
       await this.playBrowserSentence(text);
     }
     if (myTurn === this.turnId && this.state === "speaking") {
-      this.armEchoGuard(text);  // приветствие — самый частый источник само-эха (как на скрине Pavel'а)
+      this.armEchoGuard(text);  // приветствие — самый частый источник само-эха
       this.replyAllText = "";
       this.setState("listening");
     }
   }
 
   stop(): void {
-    this.recActive = false;
-    if (this.endpointTimer) { clearInterval(this.endpointTimer); this.endpointTimer = null; }
+    this.hearWanted = false;
     if (this.warmTimer) { clearInterval(this.warmTimer); this.warmTimer = null; }
     if (this.sleepTimer) { clearTimeout(this.sleepTimer); this.sleepTimer = null; }
     this.echoGuardText = ""; this.echoGuardUntil = 0;
-    try { this.rec?.abort(); } catch {}
-    this.rec = null;
+    try { this.vad?.pause(); this.vad?.destroy?.(); } catch {}
+    this.vad = null;
+    try { this.micStream?.getTracks().forEach((t) => t.stop()); } catch {}
+    this.micStream = null;
     this.stopSpeech();
     this.llmAbort?.abort();
     this.history = [];
     this.setState("off");
   }
 
-  // ── СЛУХ: супервизор ──────────────────────────────────────────────
-  private startRecognition() {
-    if (!this.recActive || this.recRunning) return;
-    const w = window as unknown as Record<string, new () => SR>;
-    const Ctor = (w.webkitSpeechRecognition || w.SpeechRecognition) as new () => SR;
-    const rec = new Ctor();
-    this.rec = rec;
-    rec.lang = "ru-RU";
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.maxAlternatives = 1;
+  // ── СЛУХ: VAD (Silero) → Whisper ──────────────────────────────────
+  /** Поднять VAD на нашем эхоочищенном потоке. true — успех. */
+  private async startHearing(): Promise<boolean> {
+    try {
+      const mod = await import("@ricky0123/vad-web");
+      this.vad = await mod.MicVAD.new({
+        model: "v5",
+        baseAssetPath: VAD_ASSETS,
+        onnxWASMBasePath: ORT_WASM,
+        // кормим VAD НАШ echoCancellation-поток (а не дефолтный мик)
+        getStream: async () => this.micStream as MediaStream,
+        // не глушим наш поток при паузе — мы сами им управляем в stop()
+        pauseStream: async () => {},
+        positiveSpeechThreshold: 0.7,   // строже: фоновый ТВ/шум не должен будить
+        negativeSpeechThreshold: 0.45,
+        minSpeechMs: 400,         // короче — мусор/щелчок/фон
+        redemptionMs: 500,        // столько тишины = конец фразы (короче = Джарви отвечает раньше)
+        preSpeechPadMs: 300,
+        onSpeechStart: () => this.onSpeechStart(),
+        onSpeechEnd: (audio: Float32Array) => this.onSpeechEnd(audio),
+        onVADMisfire: () => { /* слишком коротко — игнор */ },
+      });
+      this.vad.start();
+      this.trace("VAD up (v5, getStream=micStream)");
+      return true;
+    } catch (e) {
+      this.trace("VAD FAIL: " + String((e as Error)?.message || e));
+      console.error("[jarvi] VAD не поднялся:", e);
+      return false;
+    }
+  }
 
-    rec.onresult = (e) => {
-      let text = "";
-      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
-      text = text.trim();
-      if (!text || text === this.interim) return;
+  /** Гость заговорил. Если Джарви в этот момент говорит/думает — это перебивание. */
+  private onSpeechStart() {
+    this.trace("vad:speechStart state=" + this.state);
+    if (this.state === "speaking" || this.state === "thinking") {
+      this.bargeIn();   // мгновенно: cancel голоса + abort мозга, уходим в listening
+    }
+    // в "listening" просто ждём конца фразы — закоммитит onSpeechEnd
+  }
 
-      // ЕДИНЫЙ эхо-щит: ловит голос Джарви из колонок и во время речи, и в хвосте
-      // после неё (когда state уже "listening" — там раньше проверки не было → Джарви
-      // слышал сам себя и отвечал сам себе).
-      if (this.isEchoNow(text)) { this.interim = text; return; }
-
-      if (this.state === "speaking" || this.state === "thinking") {
-        // не эхо, речь поверх Джарви → перебивание
-        const words = normalize(text).split(" ").filter(Boolean);
-        if (words.length >= BARGE_MIN_WORDS) {
-          this.bargeIn();
-          this.interim = text;
-          this.interimChangedAt = performance.now();
-          this.ev.onUserText(text);
-        }
-        return;
-      }
-      this.interim = text;
-      this.interimChangedAt = performance.now();
+  /** Гость замолчал: кусок аудио → Whisper → текст → мозг. */
+  private async onSpeechEnd(audio: Float32Array) {
+    this.trace("vad:speechEnd samples=" + audio.length + " state=" + this.state + " inFlight=" + this.sttInFlight);
+    if (!this.hearWanted) return;
+    if (this.sttInFlight) { this.trace("  ↳ DROP (sttInFlight)"); return; }
+    this.sttInFlight = true;
+    try {
+      const text = await this.fetchStt(audio);
+      const echo = text ? this.isEchoNow(text) : false;
+      this.trace('  ↳ stt="' + text + '" echo=' + echo + " state=" + this.state);
+      if (!text) return;
+      if (echo) return;                     // бэкап: вдруг AEC пропустил голос Джарви
+      if (normalize(text).length < 2) return;
       this.ev.onUserText(text);
-    };
-
-    rec.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        this.recActive = false;
-        this.setState("denied");
-      }
-      // no-speech / network / aborted → onend сам перезапустит
-    };
-
-    rec.onend = () => {
-      this.recRunning = false;
-      if (!this.recActive) return;
-      setTimeout(() => {
-        if (!this.recActive || this.recRunning) return;
-        try { this.startRecognition(); } catch { setTimeout(() => this.startRecognition(), 600); }
-      }, RESTART_DELAY_MS);
-    };
-
-    try { rec.start(); this.recRunning = true; } catch { /* InvalidState → onend цикл подберёт */ }
+      this.commitUserUtterance(text);
+    } finally {
+      this.sttInFlight = false;
+    }
   }
 
-  /** Перезапуск слуха с чистым транскриптом (после commit'а фразы). */
-  private resetRecognition() {
-    this.interim = "";
-    try { this.rec?.abort(); } catch {}
-    // onend → startRecognition() через RESTART_DELAY_MS; глухое окно ~200мс — приемлемо (мозг думает)
-  }
-
-  // ── ENDPOINTING: не ждём isFinal ──────────────────────────────────
-  private checkEndpoint() {
-    if (this.state !== "listening") return;
-    if (!this.interim) return;
-    if (performance.now() - this.interimChangedAt < ENDPOINT_MS) return;
-    const text = this.interim.trim();
-    this.interim = "";
-    if (normalize(text).length < 2) return;
-    this.commitUserUtterance(text);
+  /** Аудио-кусок → Whisper (Cloudflare Workers AI) → текст. */
+  private async fetchStt(audio: Float32Array): Promise<string> {
+    try {
+      const b64 = floatToWavBase64(audio, 16000);
+      const r = await fetch(this.sttBase + "/stt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio: b64 }),
+      });
+      if (!r.ok) return "";
+      const j = await r.json();
+      return typeof j.text === "string" ? j.text.trim() : "";
+    } catch { return ""; }
   }
 
   private commitUserUtterance(text: string) {
+    this.trace('COMMIT "' + text + '"');
     this.turnT0 = performance.now();
     this.firstAudioReported = false;
     this.history.push({ role: "user", content: text });
-    this.resetRecognition();
     this.askBrain();
   }
 
@@ -329,6 +368,7 @@ export class JarviEngine {
 
   private async askBrain() {
     this.turnId++;
+    this.trace("askBrain turn=" + this.turnId + " hist=" + this.history.length);
     this.setState("thinking");
     this.replyAllText = "";
     this.spokenSentences = [];
@@ -349,9 +389,10 @@ export class JarviEngine {
         signal: ac.signal,
       });
       if (!resp.ok || !resp.body) throw new Error("chat " + resp.status);
-    } catch {
-      if (ac.signal.aborted) return; // барж-ин — норма
-      // мозг недоступен: URL туннеля мог ротироваться — перечитать config и повторить раз
+    } catch (e) {
+      if (ac.signal.aborted) { this.trace("askBrain aborted (barge)"); return; } // барж-ин — норма
+      this.trace("askBrain FETCH FAIL: " + String((e as Error)?.message || e));
+      // мозг недоступен: перечитать config и повторить раз
       if (await this.resolveBrain()) { this.askBrain(); return; }
       this.goSleep();
       return;
@@ -381,31 +422,35 @@ export class JarviEngine {
           for (const s of ready) this.enqueueSentence(s);
         }
       }
-    } catch { /* abort при барж-ине */ }
-    if (ac.signal.aborted) return;
+    } catch (e) { this.trace("stream read err: " + String((e as Error)?.message || e)); /* abort при барж-ине */ }
+    if (ac.signal.aborted) { this.trace("stream aborted (barge)"); return; }
     if (textBuf.trim()) this.enqueueSentence(textBuf.trim());
     this.streamDone = true;
+    this.trace("stream DONE turn=" + this.turnId + " sentences=" + this.spokenSentences.length + " queued(live=" + this.liveJobs.length + ",br=" + this.ttsQueue.length + ")");
     this.maybeFinishTurn();
   }
 
   // ── ГОЛОС: очередь по предложениям ────────────────────────────────
   private pickVoice() {
+    if (typeof speechSynthesis === "undefined") return;
     const all = speechSynthesis.getVoices();
     if (!all.length) return;
     const ru = all.filter((v) => v.lang?.toLowerCase().startsWith("ru"));
-    // приоритет: Google (сетевой, живее) → Microsoft Dmitry/Pavel → любой ru
+    // Джарви — МУЖСКОЙ голос (Silero eugene). Браузерный фоллбэк тоже держим мужским,
+    // иначе при сбое/барж-ине дворецкий «меняет пол» (Google ru-voice — женский).
+    const female = /female|женск|svetlana|светлана|tatyana|татьяна|elena|елена|alyona|ал[её]на|milena|милена|google/i;
     this.voice =
-      ru.find((v) => /google/i.test(v.name)) ||
-      ru.find((v) => /dmitry|дмитрий|pavel|павел/i.test(v.name)) ||
+      ru.find((v) => /dmitry|дмитрий|pavel|павел|maxim|максим|artyom|арт[её]м|male|мужск/i.test(v.name)) ||
+      ru.find((v) => !female.test(v.name)) ||
       ru[0] || null;
   }
 
   private enqueueSentence(raw: string) {
     const s = cleanForSpeech(raw);
     if (!s) return;
+    this.trace('enqueue "' + s.slice(0, 40) + '" mode=' + this.voiceMode);
     this.replyAllText += " " + s;
     if (this.voiceMode === "live" && this.audioCtx) {
-      // синтез СТАРТУЕТ сразу (конвейер: фразу N+1 синтезируем, пока N звучит)
       this.liveJobs.push({ text: s, audio: this.fetchTts(s) });
       this.runLiveLoop(this.turnId);
     } else {
@@ -421,7 +466,7 @@ export class JarviEngine {
     }
   }
 
-  // ── БРАУЗЕРНЫЙ голос (этаж А / фоллбэк) ────────────────────────────
+  // ── БРАУЗЕРНЫЙ голос (фоллбэк) ─────────────────────────────────────
   private speakNext() {
     const s = this.ttsQueue.shift();
     if (!s) { this.maybeFinishTurn(); return; }
@@ -441,7 +486,7 @@ export class JarviEngine {
     speechSynthesis.speak(u);
   }
 
-  // ── ЖИВОЙ голос (этаж Б): Silero WAV → AudioContext + амплитудный липсинк ──
+  // ── ЖИВОЙ голос: /tts WAV/MP3 → AudioContext + амплитудный липсинк ──
   private async fetchTts(text: string): Promise<AudioBuffer | null> {
     try {
       const r = await fetch(this.chatBase + "/tts", {
@@ -460,7 +505,9 @@ export class JarviEngine {
     this.startMouth();
     while (this.liveJobs.length && turn === this.turnId) {
       const job = this.liveJobs.shift()!;
+      this.trace('live: awaiting tts "' + job.text.slice(0, 30) + '"');
       const buf = await job.audio;
+      this.trace("live: tts " + (buf ? "ok" : "NULL") + " turn=" + turn + "/" + this.turnId + " state=" + this.state);
       if (turn !== this.turnId || (this.state !== "thinking" && this.state !== "speaking")) break; // барж-ин/новый ход
       this.setState("speaking");
       this.speakingNow = job.text;
@@ -486,8 +533,20 @@ export class JarviEngine {
       src.buffer = buf;
       src.connect(this.analyser);
       this.liveSource = src;
-      src.onended = () => { if (this.liveSource === src) this.liveSource = null; resolve(); };
-      try { src.start(); } catch { resolve(); }
+      // ВАЖНО: один резолвер, который зовут И onended, И stopSpeech (барж-ин).
+      // Без этого при перебивании промис не резолвился → runLiveLoop висел → livePlaying
+      // застревал true → все следующие ходы стояли в "думает" насмерть.
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        if (this.liveResolve === done) this.liveResolve = null;
+        if (this.liveSource === src) this.liveSource = null;
+        resolve();
+      };
+      this.liveResolve = done;
+      src.onended = done;
+      try { src.start(); } catch { done(); }
     });
   }
 
@@ -504,7 +563,8 @@ export class JarviEngine {
     });
   }
 
-  // амплитуда реального аудио → открытие рта (настоящий липсинк, этаж Б)
+  // амплитуда реального аудио → открытие рта (липсинк со сглаживанием)
+  private mouthVal = 0;
   private startMouth() {
     if (this.mouthTimer || !this.analyser) return;
     const data = new Uint8Array(this.analyser.frequencyBinCount);
@@ -514,12 +574,18 @@ export class JarviEngine {
       let sum = 0;
       for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
       const rms = Math.sqrt(sum / data.length);
-      this.ev.onMouth?.(Math.min(1, rms * 3.2)); // усиление до читаемого размаха
-    }, 40);
+      // нелинейность: гласные шире, тихие согласные не «жуют» рот вхолостую
+      const target = Math.min(1, Math.pow(rms * 3.0, 0.8) * 1.15);
+      // огибающая: открывается быстро (attack), закрывается плавно (release) → нет дёрганья
+      const k = target > this.mouthVal ? 0.55 : 0.2;
+      this.mouthVal += (target - this.mouthVal) * k;
+      this.ev.onMouth?.(this.mouthVal);
+    }, 33); // ~30 кадров/с
   }
 
   private stopMouth() {
     if (this.mouthTimer) { clearInterval(this.mouthTimer); this.mouthTimer = null; }
+    this.mouthVal = 0;
     this.ev.onMouth?.(0);
   }
 
@@ -542,6 +608,7 @@ export class JarviEngine {
     // живой
     this.liveJobs = [];
     if (this.liveSource) { try { this.liveSource.onended = null; this.liveSource.stop(); } catch {} this.liveSource = null; }
+    this.liveResolve?.(); // разблокируем зависший await playBuffer (резолвер сам себя гасит флагом settled)
     this.stopMouth();
     // браузерный
     this.ttsQueue = [];
@@ -595,6 +662,7 @@ export class JarviEngine {
   }
 
   private bargeIn() {
+    this.trace("BARGE-IN (cut) at state=" + this.state);
     this.llmAbort?.abort();
     this.stopSpeech();
     this.finalizeAssistantHistory(true);

@@ -6,3 +6,9 @@ name = "jarvi-brain"
 main = "jarvi-brain.js"
 compatibility_date = "2026-01-01"
 workers_dev = true
+
+# Workers AI — для /stt (Whisper @cf/openai/whisper-large-v3-turbo).
+# Слух Джарви: браузер шлёт аудио-кусок (WAV base64) → Whisper на edge-GPU → текст.
+# Бесплатный тариф 10 000 нейронов/сутки, тот же аккаунт. Биндинг включается этой строкой.
+[ai]
+binding = "AI"
