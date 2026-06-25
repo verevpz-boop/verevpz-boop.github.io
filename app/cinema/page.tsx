@@ -16,6 +16,12 @@ export default function CinemaPage() {
     >
       <div className="mx-auto grid max-w-4xl gap-8 md:gap-12">
         <ShowcaseVideo
+          src={R2_VIDEOS.battle}
+          poster={POSTERS.battle}
+          aspect="9/16"
+          caption="Battle — cinematic scene"
+        />
+        <ShowcaseVideo
           src={R2_VIDEOS.streetFight}
           poster={POSTERS.streetFight}
           aspect="16/9"
