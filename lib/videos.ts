@@ -46,6 +46,7 @@ export const R2_VIDEOS = {
   openartCinema: r2("cinema/openart_cinema_01.mp4"),
   warEpic: r2("cinema/war-epic-0429.mp4"),
   streetFight: r2("cinema/streetfight_01.mp4"),
+  battle: r2("cinema/battle_01.mp4"),
 
   /* ── Gaming ─────────────────────────────────────────────────────────── */
   raidMasterfinal: r2("gaming/raid_masterfinal.mp4"),
@@ -112,4 +113,5 @@ export const POSTERS = {
   racingSpeeders: "/posters/racing_speeders.jpg",
   warEpic: "/posters/war_epic_0429.jpg",
   streetFight: "/posters/streetfight.jpg",
+  battle: "/posters/battle.jpg",
 } as const;
