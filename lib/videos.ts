@@ -48,6 +48,11 @@ export const R2_VIDEOS = {
   streetFight: r2("cinema/streetfight_01.mp4"),
   battle: r2("cinema/battle_01.mp4"),
 
+  /* ── Animation (AI-мультсериал «Шифу Учит», вертикаль 9:16) ───────────── */
+  animMuha: r2("animation/muha_01.mp4"),
+  animKungfu: r2("animation/kungfu_01.mp4"),
+  animTianxia: r2("animation/tianxia_01.mp4"),
+
   /* ── Gaming ─────────────────────────────────────────────────────────── */
   raidMasterfinal: r2("gaming/raid_masterfinal.mp4"),
   smeh0424gaming: r2("gaming/smeh_0424_2.mp4"),
@@ -114,4 +119,7 @@ export const POSTERS = {
   warEpic: "/posters/war_epic_0429.jpg",
   streetFight: "/posters/streetfight.jpg",
   battle: "/posters/battle.jpg",
+  animMuha: "/posters/animation/muha.jpg",
+  animKungfu: "/posters/animation/kungfu.jpg",
+  animTianxia: "/posters/animation/tianxia.jpg",
 } as const;

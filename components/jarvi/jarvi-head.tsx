@@ -23,6 +23,7 @@ import type { JarviState } from "./jarvi-engine";
 export type JarviDriver = { state: JarviState; mouth: number }; // mouth 0..1 (живой липсинк; <0 = режим не активен)
 
 const MODEL_URL = "/models/jarvi-butler.vrm";
+const ARM_Z = 1.3; // базовый угол опускания плеч из T-позы (рад); анимация качает вокруг него
 
 const GOLD = "#C9A961";
 // цвет рим-света по состоянию — «живые» режимы как у прежней головы
@@ -49,30 +50,29 @@ function ButlerAvatar({ driver }: { driver: React.MutableRefObject<JarviDriver> 
   const mouth = useRef(0);          // сглаженное открытие рта
   const blink = useRef(0);          // текущее значение моргания
   const nextBlink = useRef(1.5);    // время следующего моргания
+  const talkAmp = useRef(0);        // сглаженная «громкость» жестикуляции (0 покой → 1 речь)
 
   // Один раз готовим VRM: чистим, разворачиваем лицом к камере (VRM0 смотрит в −Z),
-  // считаем кадрирование «по пояс» из bbox.
-  const { vrm, fit } = useMemo(() => {
+  // ставим спокойную позу, ловим кости корпуса/рук для анимации, считаем кадрирование.
+  const { vrm, fit, bones } = useMemo(() => {
     const v = gltf.userData.vrm as VRM;
+    const g = (name: Parameters<typeof v.humanoid.getNormalizedBoneNode>[0]) =>
+      v.humanoid.getNormalizedBoneNode(name);
     if (!gltf.userData.__jarviReady) {
       try { VRMUtils.removeUnnecessaryVertices(gltf.scene); } catch {}
       try { VRMUtils.combineSkeletons(gltf.scene); } catch {}
       VRMUtils.rotateVRM0(v);                       // VRM0.0 → повернуть лицом к +Z (к зрителю)
       v.scene.traverse((o) => { o.frustumCulled = false; });
       // из дефолтной T-позы → спокойный idle: опустить руки вдоль корпуса
-      const setBone = (name: Parameters<typeof v.humanoid.getNormalizedBoneNode>[0], z: number) => {
-        const n = v.humanoid.getNormalizedBoneNode(name);
-        if (n) n.rotation.z = z;
-      };
-      setBone("leftUpperArm", 1.25);
-      setBone("rightUpperArm", -1.25);
-      setBone("leftLowerArm", 0.18);
-      setBone("rightLowerArm", -0.18);
+      const la = g("leftUpperArm"); if (la) la.rotation.z = ARM_Z;
+      const ra = g("rightUpperArm"); if (ra) ra.rotation.z = -ARM_Z;
+      const lla = g("leftLowerArm"); if (lla) lla.rotation.z = 0.18;
+      const rla = g("rightLowerArm"); if (rla) rla.rotation.z = -0.18;
       gltf.userData.__jarviReady = true;
     }
     v.update(0);
 
-    // кадрирование: показать грудь-плечи-голову (лицо читаемо: липсинк/моргание/взгляд)
+    // кадрирование: крупный портрет, голова опущена ниже верха кадра (не цепляет надпись «ДЖАРВИ»)
     const box = new THREE.Box3().setFromObject(v.scene);
     const top = box.max.y;                 // макушка
     const bottom = box.min.y;              // стопы
@@ -81,12 +81,14 @@ function ButlerAvatar({ driver }: { driver: React.MutableRefObject<JarviDriver> 
 
     const fov = 42, dist = 7;
     const viewH = 2 * dist * Math.tan((fov * Math.PI) / 180 / 2);
-    const visible = 0.5 * H;               // верхняя половина роста (голова→пояс)
+    const visible = 0.40 * H;              // меньше доля роста в кадре = крупнее лицо
     const s = (viewH * 0.92) / visible;    // масштаб под кадр
-    const headTopY = (viewH / 2) * 0.86;   // куда поставить макушку (чуть ниже верха кадра)
+    const headTopY = (viewH / 2) * 0.52;   // макушка заметно ниже верха кадра — под надписью
+    const bones = { spine: g("spine"), chest: g("chest") || g("upperChest"), la: g("leftUpperArm"), ra: g("rightUpperArm") };
     return {
       vrm: v,
       fit: { scale: s, x: -center.x * s, y: headTopY - top * s },
+      bones,
     };
   }, [gltf]);
 
@@ -94,6 +96,7 @@ function ButlerAvatar({ driver }: { driver: React.MutableRefObject<JarviDriver> 
     const d = Math.min(delta, 0.05);
     const t = (typeof performance !== "undefined" ? performance.now() : 0) / 1000;
     const state = driver.current.state;
+    const speaking = state === "speaking";
 
     // ── ЛИПСИНК: открытие рта по амплитуде реального аудио ──
     const live = driver.current.mouth;
@@ -101,8 +104,8 @@ function ButlerAvatar({ driver }: { driver: React.MutableRefObject<JarviDriver> 
       ? (window as unknown as { __jarviMouthTest?: number }).__jarviMouthTest : undefined;
     let target = 0;
     if (typeof test === "number") target = test;
-    else if (state === "speaking" && live >= 0) target = live;
-    else if (state === "speaking") target = 0.25 + 0.25 * Math.abs(Math.sin(t * 11));
+    else if (speaking && live >= 0) target = live;
+    else if (speaking) target = 0.25 + 0.25 * Math.abs(Math.sin(t * 11));
     mouth.current += (target - mouth.current) * 0.4;
 
     // ── МОРГАНИЕ по таймеру (быстрое закрытие-открытие) ──
@@ -119,11 +122,28 @@ function ButlerAvatar({ driver }: { driver: React.MutableRefObject<JarviDriver> 
       em.setValue("blink", Math.min(1, blink.current));
     }
 
-    // ── ВЗГЛЯД на зрителя + лёгкий idle-покач/«дыхание» ──
+    // ── ВЗГЛЯД на зрителя ──
     if (vrm.lookAt) vrm.lookAt.lookAt(camera.position);
+
+    // ── ЖИВОЕ ТЕЛО: дыхание + покач, в речи — заметнее (корпус и руки не «деревянные») ──
+    talkAmp.current += ((speaking ? 1 : 0) - talkAmp.current) * 0.06;
+    const k = talkAmp.current;
+    if (bones.spine) {
+      bones.spine.rotation.z = Math.sin(t * 0.7) * 0.02 + Math.sin(t * 2.1) * 0.025 * k;
+      bones.spine.rotation.x = Math.sin(t * 1.1) * 0.012 + Math.abs(Math.sin(t * 4.5)) * 0.03 * k;
+    }
+    if (bones.chest) bones.chest.rotation.x = Math.sin(t * 1.2) * 0.01; // дыхание
+    if (bones.la) {
+      bones.la.rotation.z = ARM_Z + Math.sin(t * 0.9) * 0.03 + Math.sin(t * 3.7) * 0.06 * k;
+      bones.la.rotation.x = Math.sin(t * 0.8) * 0.03 + Math.sin(t * 3.2) * 0.08 * k;
+    }
+    if (bones.ra) {
+      bones.ra.rotation.z = -ARM_Z + Math.sin(t * 0.9 + 1) * 0.03 - Math.sin(t * 4.0) * 0.06 * k;
+      bones.ra.rotation.x = Math.sin(t * 0.8 + 0.5) * 0.03 + Math.sin(t * 3.5) * 0.08 * k;
+    }
     if (root.current) {
-      root.current.rotation.y = Math.sin(t * 0.5) * 0.06;
-      root.current.position.y = fit.y + Math.sin(t * 1.2) * 0.015; // дыхание
+      root.current.rotation.y = Math.sin(t * 0.5) * 0.05;
+      root.current.position.y = fit.y + Math.sin(t * 1.2) * 0.02; // дыхание корпусом
     }
     vrm.update(d);
 

@@ -63,6 +63,16 @@ const SATELLITES = [
     description: "n8n-боты и AI-помощники",
     modelInside: "/models/brain.glb",
   },
+  {
+    name: "ANIMATION",
+    color: "#C97FE0",
+    orbitRadius: 20.5,
+    orbitRotation: [55, 0, 30] as [number, number, number],
+    speed: (2 * Math.PI) / 21,
+    initialAngle: 5.2,
+    href: "/animation",
+    description: "AI-мультсериал «Шифу Учит»",
+  },
 ];
 
 // ── Camera fly-to controller ──────────────────────────────────────────────────
@@ -144,18 +154,22 @@ export function GlobeCanvas() {
       {/* Deep star field — three layers for depth */}
       <DeepStarField />
 
-      {/* Earth */}
-      <Earth radius={4.5} />
+      {/* Констелляция приподнята, чтобы орбиты не ныряли в зону дверей внизу
+          (разведение слоёв: глобус+спутники — верхние 2/3, двери — нижняя треть). */}
+      <group position={[0, 2.4, 0]}>
+        {/* Earth */}
+        <Earth radius={4.5} />
 
-      {/* Satellites */}
-      {SATELLITES.map((sat) => (
-        <Satellite
-          key={sat.name}
-          {...sat}
-          navigate={navigate}
-          onFlyTo={handleSatelliteClick}
-        />
-      ))}
+        {/* Satellites */}
+        {SATELLITES.map((sat) => (
+          <Satellite
+            key={sat.name}
+            {...sat}
+            navigate={navigate}
+            onFlyTo={handleSatelliteClick}
+          />
+        ))}
+      </group>
     </Canvas>
   );
 }

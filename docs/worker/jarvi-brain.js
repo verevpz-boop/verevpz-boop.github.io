@@ -18,6 +18,8 @@
 const ALLOWED_ORIGINS = [
   "https://verevpz-boop.github.io",
   "http://localhost:3000",
+  "http://localhost:3100",
+  "http://127.0.0.1:3100",
   "http://localhost:4321",
   "http://127.0.0.1:4321",
 ];

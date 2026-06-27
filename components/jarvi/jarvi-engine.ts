@@ -22,6 +22,7 @@ export interface JarviEvents {
   onUserText: (text: string) => void;      // что слышим от гостя (распознанная реплика)
   onLatency?: (ms: number) => void;        // «замолчал → первый звук» (замер ≤1с)
   onMouth?: (open: number) => void;        // 0..1 открытие рта (живой липсинк, этаж Б)
+  onInputLevel?: (level: number) => void;  // 0..1 громкость МИКА гостя (значок «слушаю»)
 }
 
 type VoiceMode = "browser" | "live";
@@ -54,6 +55,31 @@ function cleanForSpeech(s: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** Словарь ручных ударений для Silero (+ перед ударной гласной). Модель сама
+ *  расставляет ударения и на именах/фамилиях ошибается — правим точечно.
+ *  Применяется ТОЛЬКО к тексту для Silero (не к субтитрам/браузерному голосу). */
+const ACCENT_FIXES: [RegExp, string][] = [
+  [/Зверев/gi, "Зв+ерев"],            // фамилия Pavel'а: ударение на первое «е» (Зв+ерев/Зв+ерева/…)
+  [/verevpz/gi, "вер+ев пэ зэ"],      // телеграм-ник: «верЕв пэ зэ» — через Е (не Ё), ударение на последнее «е»
+  [/вер[её]впз/gi, "вер+ев пэ зэ"],   // тот же ник, если мозг отдал кириллицей (в т.ч. с Ё)
+];
+function accentRu(s: string): string {
+  let out = s;
+  for (const [re, rep] of ACCENT_FIXES) out = out.replace(re, rep);
+  return out;
+}
+
+/** Справка о студии — досылается мозгу как assistant-контекст (Worker фильтрует
+ *  клиентский system, а assistant пропускает). Только в запрос, НЕ в историю/субтитры.
+ *  Так знания обновляются без передеплоя Worker'а и уезжают на прод с сайтом. */
+const STUDIO_CONTEXT =
+  "(Контекст о студии — учитывай в ответах, но НЕ зачитывай списком и не цитируй дословно. " +
+  "Pavel Zverev — AI-креатор. Делает: AI-видео для кино, фэшн, рекламы и гейминга; " +
+  "авторскую анимацию и мультфильмы — серия «Шифу Учит» про кунг-фу и дракона (школа боевых искусств); " +
+  "Telegram- и n8n-ботов, автоматизацию; 3D-сайты уровня Awwwards, как этот; " +
+  "говорящих AI-аватаров; настройку VPN и векторной памяти. " +
+  "Разделы сайта: Кино, Фэшн, Гейминг, Тех, Анимация, AI-боты, TikTok, Студия.)";
 
 /** Режем накопленный стрим на завершённые предложения. */
 function splitSentences(buf: string): { ready: string[]; rest: string } {
@@ -127,6 +153,13 @@ export class JarviEngine {
   private liveResolve: (() => void) | null = null;  // резолвер текущего playBuffer (разблокировать при барж-ине)
   private livePlaying = false;
   private mouthTimer: ReturnType<typeof setInterval> | null = null;
+
+  // ── метр громкости МИКА гостя (отвод от echoCancellation-потока) → значок «слушаю» ──
+  private inputCtx: AudioContext | null = null;
+  private inputAnalyser: AnalyserNode | null = null;
+  private inputTimer: ReturnType<typeof setInterval> | null = null;
+  private inputCtxOwn = false;        // создали свой контекст (закрыть в stop) или переиспользуем audioCtx
+  private inputLevel = 0;
 
   private turnT0 = 0;                 // момент «гость замолчал» (commit)
   private firstAudioReported = false;
@@ -227,6 +260,7 @@ export class JarviEngine {
     this.hearWanted = true;
     const ok = await this.startHearing();
     if (!ok) { this.setState("denied"); return; }
+    this.startInputMeter();   // громкость мика гостя → пульсация значка «слушаю»
 
     // тёплый пинг: без него туннель/TLS остывает и первый ответ дорожает на сотни мс
     this.warmTimer = setInterval(() => {
@@ -271,6 +305,7 @@ export class JarviEngine {
     this.echoGuardText = ""; this.echoGuardUntil = 0;
     try { this.vad?.pause(); this.vad?.destroy?.(); } catch {}
     this.vad = null;
+    this.stopInputMeter();
     try { this.micStream?.getTracks().forEach((t) => t.stop()); } catch {}
     this.micStream = null;
     this.stopSpeech();
@@ -385,7 +420,7 @@ export class JarviEngine {
       resp = await fetch(this.chatBase + "/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: this.history.slice(-16) }),
+        body: JSON.stringify({ messages: [{ role: "assistant", content: STUDIO_CONTEXT }, ...this.history.slice(-16)] }),
         signal: ac.signal,
       });
       if (!resp.ok || !resp.body) throw new Error("chat " + resp.status);
@@ -491,7 +526,7 @@ export class JarviEngine {
     try {
       const r = await fetch(this.chatBase + "/tts", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }), signal: this.llmAbort?.signal,
+        body: JSON.stringify({ text: accentRu(text) }), signal: this.llmAbort?.signal,
       });
       if (!r.ok) return null;
       const buf = await r.arrayBuffer();
@@ -587,6 +622,45 @@ export class JarviEngine {
     if (this.mouthTimer) { clearInterval(this.mouthTimer); this.mouthTimer = null; }
     this.mouthVal = 0;
     this.ev.onMouth?.(0);
+  }
+
+  // ── метр входа: RMS микрофона гостя ТОЛЬКО в "listening" → onInputLevel (0..1) ──
+  private startInputMeter() {
+    if (this.inputTimer || !this.micStream) return;
+    try {
+      if (this.audioCtx) { this.inputCtx = this.audioCtx; this.inputCtxOwn = false; }
+      else {
+        const Ctor = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+        this.inputCtx = new Ctor(); this.inputCtxOwn = true;
+      }
+      const src = this.inputCtx.createMediaStreamSource(this.micStream);
+      this.inputAnalyser = this.inputCtx.createAnalyser();
+      this.inputAnalyser.fftSize = 256;
+      src.connect(this.inputAnalyser);   // к destination НЕ подключаем — без петли/эха
+      const data = new Uint8Array(this.inputAnalyser.frequencyBinCount);
+      this.inputTimer = setInterval(() => {
+        if (!this.inputAnalyser) return;
+        let target = 0;
+        if (this.state === "listening") {
+          this.inputAnalyser.getByteTimeDomainData(data);
+          let sum = 0;
+          for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+          const rms = Math.sqrt(sum / data.length);
+          target = Math.min(1, Math.pow(rms * 3.0, 0.8) * 1.3);
+        }
+        this.inputLevel += (target - this.inputLevel) * 0.35;
+        this.ev.onInputLevel?.(this.inputLevel);
+      }, 50);
+    } catch { /* метр не критичен для разговора */ }
+  }
+
+  private stopInputMeter() {
+    if (this.inputTimer) { clearInterval(this.inputTimer); this.inputTimer = null; }
+    this.inputAnalyser = null;
+    if (this.inputCtx && this.inputCtxOwn) { try { this.inputCtx.close(); } catch {} }
+    this.inputCtx = null; this.inputCtxOwn = false;
+    this.inputLevel = 0;
+    this.ev.onInputLevel?.(0);
   }
 
   private maybeFinishTurn() {

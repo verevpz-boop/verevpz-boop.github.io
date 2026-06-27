@@ -1,14 +1,18 @@
 import Link from "next/link";
+import { TikTokMiniTile } from "@/components/ui/tiktok-mini-tile";
 
 /**
  * Лента работ на главной — постеры-ссылки в разделы. Сознательно БЕЗ видео
  * и без 3D: чистые JPG (lazy) грузятся мгновенно даже на слабой мобиле,
  * посетитель видит работы сразу, не кликая в глобус.
+ * Исключение — рубрика TikTok (mini): вместо больших 9:16 — мини-мишка-сфера
+ * (3D, ленивая), клик → /tiktok. 🔴 хвост: на мобиле дать ей статичный фоллбэк.
  */
 const ROWS: {
   title: string;
   href: string;
   tall?: boolean;
+  mini?: boolean;
   posters: string[];
 }[] = [
   {
@@ -39,14 +43,27 @@ const ROWS: {
     ],
   },
   {
-    title: "TikTok",
-    href: "/tiktok",
+    title: "Tech",
+    href: "/tech",
+    posters: [
+      "/posters/maldives_hotel.jpg",
+    ],
+  },
+  {
+    title: "Animation",
+    href: "/animation",
     tall: true,
     posters: [
-      "/posters/tiktok/golos.jpg",
-      "/posters/tiktok/face_01.jpg",
-      "/posters/tiktok/iceland_master.jpg",
+      "/posters/animation/muha.jpg",
+      "/posters/animation/kungfu.jpg",
+      "/posters/animation/tianxia.jpg",
     ],
+  },
+  {
+    title: "TikTok",
+    href: "/tiktok",
+    mini: true,
+    posters: [],
   },
 ];
 
@@ -98,27 +115,35 @@ export function WorksFeed() {
                 смотреть все →
               </Link>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              {row.posters.map((p) => (
-                <Link
-                  key={p}
-                  href={row.href}
-                  className={`group relative overflow-hidden rounded-lg border border-[#C9A961]/25 bg-black/40 ${
-                    row.tall ? "aspect-[9/16] sm:aspect-[3/4]" : "aspect-video"
-                  }`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={p}
-                    alt={`${row.title} — работа Pavel Zverev`}
-                    loading="lazy"
-                    draggable={false}
-                    className="h-full w-full select-none object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                  />
-                  <div className="pointer-events-none absolute inset-0 rounded-lg ring-0 ring-inset ring-gold/0 transition-all duration-300 group-hover:ring-1 group-hover:ring-gold/60" />
-                </Link>
-              ))}
-            </div>
+            {row.mini ? (
+              <div className="flex justify-center">
+                <div className="w-[260px] max-w-full">
+                  <TikTokMiniTile />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {row.posters.map((p) => (
+                  <Link
+                    key={p}
+                    href={row.href}
+                    className={`group relative overflow-hidden rounded-lg border border-[#C9A961]/25 bg-black/40 ${
+                      row.tall ? "mx-auto aspect-[9/16] w-full max-w-[190px]" : "aspect-video"
+                    }`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={p}
+                      alt={`${row.title} — работа Pavel Zverev`}
+                      loading="lazy"
+                      draggable={false}
+                      className="h-full w-full select-none object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                    />
+                    <div className="pointer-events-none absolute inset-0 rounded-lg ring-0 ring-inset ring-gold/0 transition-all duration-300 group-hover:ring-1 group-hover:ring-gold/60" />
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
