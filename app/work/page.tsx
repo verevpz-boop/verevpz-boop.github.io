@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TikTokMiniTile } from "@/components/ui/tiktok-mini-tile";
 
 export const metadata = {
   title: "Работы — Pavel Zverev",
@@ -10,7 +11,8 @@ const ITEMS: { label: string; href: string; poster: string; tall?: boolean }[] =
   { label: "Cinema", href: "/cinema", poster: "/posters/reign.jpg" },
   { label: "Gaming", href: "/gaming", poster: "/posters/raid_masterfinal.jpg" },
   { label: "Tech", href: "/tech", poster: "/posters/maldives_hotel.jpg" },
-  { label: "TikTok", href: "/tiktok", poster: "/posters/tiktok/golos.jpg", tall: true },
+  { label: "Animation", href: "/animation", poster: "/posters/animation/tianxia.jpg" },
+  // TikTok — отдельной плиткой-мишкой ниже (TikTokMiniTile), не постером.
 ];
 
 export default function WorkPage() {
@@ -71,6 +73,9 @@ export default function WorkPage() {
             <div className="pointer-events-none absolute inset-0 rounded-xl ring-0 ring-inset ring-gold/0 transition-all duration-300 group-hover:ring-1 group-hover:ring-gold/60" />
           </Link>
         ))}
+
+        {/* TikTok — мини-мишка-сфера (3D) вместо плоского 9:16-постера */}
+        <TikTokMiniTile />
       </div>
 
       <div className="mt-16 text-center">

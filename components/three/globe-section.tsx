@@ -70,6 +70,12 @@ export function GlobeSection() {
       {/* ── Две двери — главная развилка (Работы / Студия) ───────── */}
       <EntryDoors />
 
+      {/* ── Bottom scrim — держит подпись читаемой поверх пролетающих спутников ── */}
+      <div
+        className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-28"
+        style={{ background: "linear-gradient(to top, rgba(10,8,5,0.9), rgba(10,8,5,0.55) 45%, rgba(10,8,5,0))" }}
+      />
+
       {/* ── Bottom signature ────────────────────────────────── */}
       <motion.div
         className="pointer-events-none absolute bottom-10 left-0 right-0 z-20 text-center"

@@ -11,6 +11,7 @@ const SECTIONS = [
   { label: "Gaming", href: "/gaming" },
   { label: "AI-Bots", href: "/ai-bots" },
   { label: "TikTok", href: "/tiktok" },
+  { label: "Animation", href: "/animation" },
   { label: "Business", href: "/business" }, // Business всегда последним
 ];
 

@@ -16,7 +16,7 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 export function EntryDoors() {
   return (
     <motion.div
-      className="pz-doors pointer-events-none absolute bottom-24 left-0 right-0 z-20 flex justify-center gap-5 px-5"
+      className="pz-doors pointer-events-none absolute bottom-40 left-0 right-0 z-20 flex justify-center gap-8 px-5"
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.9, delay: 1.0, ease: EASE }}
@@ -81,8 +81,8 @@ export function EntryDoors() {
         .pz-door {
           position: relative;
           width: 300px;
-          max-width: 42vw;
-          min-height: 230px;
+          max-width: 40vw;
+          min-height: 196px;
           display: flex;
           flex-direction: column;
           justify-content: flex-end;
@@ -111,7 +111,7 @@ export function EntryDoors() {
         }
         .pz-door:hover .pz-glow { opacity: 1; }
 
-        .pz-scene { position: relative; height: 140px; z-index: 1; display: block; }
+        .pz-scene { position: relative; height: 118px; z-index: 1; display: block; }
 
         /* plates (РАБОТЫ) */
         .pz-scene { perspective: 760px; }
