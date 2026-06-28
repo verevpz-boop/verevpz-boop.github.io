@@ -26,6 +26,7 @@ export interface JarviEvents {
 }
 
 type VoiceMode = "browser" | "live";
+type LiveJob = { text: string; audio: Promise<AudioBuffer | null> };
 
 // ── СЛУХ (VAD): пути к ассетам модели на CDN (под версии в package.json) ──
 const VAD_VER = "0.0.30";
@@ -147,12 +148,10 @@ export class JarviEngine {
   private voiceMode: VoiceMode = "browser";
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
-  private liveJobs: string[] = [];     // очередь текстов предложений на озвучку (стрим)
+  private liveJobs: LiveJob[] = [];
   private liveSource: AudioBufferSourceNode | null = null;
   private liveResolve: (() => void) | null = null;  // резолвер текущего playBuffer (разблокировать при барж-ине)
   private livePlaying = false;
-  private liveStreamSources: AudioBufferSourceNode[] = []; // источники потоковых PCM-чанков (для барж-ина)
-  private streamCancelled = false;                          // флаг остановки потока (барж-ин/новый ход)
   private mouthTimer: ReturnType<typeof setInterval> | null = null;
 
   // ── метр громкости МИКА гостя (отвод от echoCancellation-потока) → значок «слушаю» ──
@@ -284,9 +283,8 @@ export class JarviEngine {
     this.ev.onSubtitle(text);
     if (this.voiceMode === "live" && this.audioCtx) {
       this.startMouth();
-      const streamed = await this.playSentenceStream(text, myTurn);
-      if (!streamed && myTurn === this.turnId && this.state === "speaking") {
-        const buf = await this.fetchTts(text);
+      const buf = await this.fetchTts(text);
+      if (myTurn === this.turnId && this.state === "speaking") {
         if (buf) await this.playBuffer(buf); else await this.playBrowserSentence(text);
       }
       this.stopMouth();
@@ -332,7 +330,7 @@ export class JarviEngine {
         positiveSpeechThreshold: 0.7,   // строже: фоновый ТВ/шум не должен будить
         negativeSpeechThreshold: 0.45,
         minSpeechMs: 400,         // короче — мусор/щелчок/фон
-        redemptionMs: 300,        // столько тишины = конец фразы (короче = Джарви отвечает раньше)
+        redemptionMs: 500,        // столько тишины = конец фразы (короче = Джарви отвечает раньше)
         preSpeechPadMs: 300,
         onSpeechStart: () => this.onSpeechStart(),
         onSpeechEnd: (audio: Float32Array) => this.onSpeechEnd(audio),
@@ -488,7 +486,7 @@ export class JarviEngine {
     this.trace('enqueue "' + s.slice(0, 40) + '" mode=' + this.voiceMode);
     this.replyAllText += " " + s;
     if (this.voiceMode === "live" && this.audioCtx) {
-      this.liveJobs.push(s);
+      this.liveJobs.push({ text: s, audio: this.fetchTts(s) });
       this.runLiveLoop(this.turnId);
     } else {
       this.ttsQueue.push(s);
@@ -541,106 +539,26 @@ export class JarviEngine {
     this.livePlaying = true;
     this.startMouth();
     while (this.liveJobs.length && turn === this.turnId) {
-      const text = this.liveJobs.shift()!;
+      const job = this.liveJobs.shift()!;
+      this.trace('live: awaiting tts "' + job.text.slice(0, 30) + '"');
+      const buf = await job.audio;
+      this.trace("live: tts " + (buf ? "ok" : "NULL") + " turn=" + turn + "/" + this.turnId + " state=" + this.state);
       if (turn !== this.turnId || (this.state !== "thinking" && this.state !== "speaking")) break; // барж-ин/новый ход
       this.setState("speaking");
-      this.speakingNow = text;
+      this.speakingNow = job.text;
       this.reportFirstAudio();
-      this.ev.onSubtitle(this.spokenSentences.concat([text]).join(" "));
-      // СТРИМИНГ: первый звук ~90мс. Не завёлся → фоллбэк на полный буфер, затем браузер.
-      const streamed = await this.playSentenceStream(text, turn);
-      if (!streamed && turn === this.turnId && (this.state === "speaking" || this.state === "thinking")) {
-        const buf = await this.fetchTts(text);
-        if (turn === this.turnId && (this.state === "speaking" || this.state === "thinking")) {
-          if (buf) await this.playBuffer(buf); else await this.playBrowserSentence(text);
-        }
+      this.ev.onSubtitle(this.spokenSentences.concat([job.text]).join(" "));
+      if (buf) {
+        await this.playBuffer(buf);
+      } else {
+        await this.playBrowserSentence(job.text); // фоллбэк: синтез не дошёл
       }
-      if (this.speakingNow) this.spokenSentences.push(text);
+      if (this.speakingNow) this.spokenSentences.push(job.text);
       this.speakingNow = "";
     }
     this.livePlaying = false;
     this.stopMouth();
     this.maybeFinishTurn();
-  }
-
-  /** Потоковое воспроизведение одного предложения через Cartesia SSE (/tts-stream).
-   *  Играет PCM-чанки (моно 16бит 24кГц) по мере прихода — первый звук ~90мс.
-   *  Чанки идут в this.analyser → липсинк работает; в this.liveStreamSources → барж-ин их гасит.
-   *  return true — отыграл/прервали; false — поток не завёлся, нужен фоллбэк (полный буфер). */
-  private async playSentenceStream(text: string, turn: number): Promise<boolean> {
-    if (!this.audioCtx || !this.analyser) return false;
-    let r: Response;
-    try {
-      r = await fetch(this.chatBase + "/tts-stream", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: accentRu(text) }), signal: this.llmAbort?.signal,
-      });
-    } catch { return false; }
-    if (!r.ok || !r.body) return false;
-
-    this.streamCancelled = false;
-    const ctx = this.audioCtx;
-    const SR = 24000;
-    let cursor = ctx.currentTime + 0.05; // запас на джиттер первого чанка
-    let played = false;
-
-    const schedule = (b64: string) => {
-      if (this.streamCancelled || turn !== this.turnId || !this.analyser) return;
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const n = bytes.byteLength >> 1;
-      if (!n) return;
-      const i16 = new Int16Array(bytes.buffer, bytes.byteOffset, n);
-      const buf = ctx.createBuffer(1, n, SR);
-      const ch = buf.getChannelData(0);
-      for (let i = 0; i < n; i++) ch[i] = i16[i] / 32768;
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(this.analyser);
-      src.onended = () => { const k = this.liveStreamSources.indexOf(src); if (k >= 0) this.liveStreamSources.splice(k, 1); };
-      const when = Math.max(ctx.currentTime, cursor);
-      this.liveStreamSources.push(src);
-      try { src.start(when); } catch {}
-      cursor = when + buf.duration;
-      played = true;
-    };
-
-    const reader = r.body.getReader();
-    const dec = new TextDecoder();
-    let sseBuf = "";
-    try {
-      for (;;) {
-        if (this.streamCancelled || turn !== this.turnId) break;
-        const { done, value } = await reader.read();
-        if (done) break;
-        sseBuf += dec.decode(value, { stream: true });
-        let nl;
-        while ((nl = sseBuf.indexOf("\n")) >= 0) {
-          const line = sseBuf.slice(0, nl).trim();
-          sseBuf = sseBuf.slice(nl + 1);
-          if (!line.startsWith("data:")) continue;
-          let j: { data?: string; done?: boolean; type?: string };
-          try { j = JSON.parse(line.slice(5).trim()); } catch { continue; }
-          if (typeof j.data === "string" && j.data) schedule(j.data);
-          if (j.done || j.type === "done") { try { reader.cancel(); } catch {} break; }
-        }
-      }
-    } catch { /* abort при барж-ине — норма */ }
-
-    if (!played) return false; // ни одного чанка → пусть фоллбэк попробует
-
-    // ждём, пока отыграют запланированные чанки (или барж-ин)
-    await new Promise<void>((resolve) => {
-      const tick = () => {
-        if (this.streamCancelled || turn !== this.turnId || !this.audioCtx) return resolve();
-        const remain = cursor - this.audioCtx.currentTime;
-        if (remain <= 0.03) return resolve();
-        setTimeout(tick, Math.min(120, Math.max(20, remain * 1000)));
-      };
-      tick();
-    });
-    return true;
   }
 
   private playBuffer(buf: AudioBuffer): Promise<void> {
@@ -763,9 +681,6 @@ export class JarviEngine {
     this.speakingNow = "";
     // живой
     this.liveJobs = [];
-    this.streamCancelled = true;                       // стоп потоковому воспроизведению
-    for (const s of this.liveStreamSources) { try { s.onended = null; s.stop(); } catch {} }
-    this.liveStreamSources = [];
     if (this.liveSource) { try { this.liveSource.onended = null; this.liveSource.stop(); } catch {} this.liveSource = null; }
     this.liveResolve?.(); // разблокируем зависший await playBuffer (резолвер сам себя гасит флагом settled)
     this.stopMouth();
