@@ -61,6 +61,12 @@ const TTS_VOICE = "ru-RU-DmitryNeural";          // мужской, бархат
 const TTS_FORMAT = "audio-24khz-48kbitrate-mono-mp3"; // браузер decodeAudioData ест MP3
 const TTS_MAX_CHARS = 600;
 
+// ── Cartesia Sonic (ОСНОВНОЙ голос Джарви, русский) ──
+// Ключ — секрет Worker'а env.CARTESIA_API_KEY (wrangler secret). Нет ключа/сбой → фоллбэк на Silero.
+const CARTESIA_MODEL = "sonic-3.5";
+const CARTESIA_VERSION = "2025-04-16";
+const CARTESIA_VOICE_ID = "1e4176b1-3db9-44d6-a601-4fe68b041942"; // Sergei — Steady Supporter (RU male)
+
 async function ttsSecMsGec() {
   let ticks = Math.floor(Date.now() / 1000) + 11644473600; // в Windows file-time эпоху
   ticks -= ticks % 300;                                    // вниз до 5 минут
@@ -184,6 +190,51 @@ export default {
       }
     }
 
+    // ── ГОЛОС-СТРИМИНГ: Cartesia /tts/sse → первый звук через ~90мс ──
+    // Проксируем SSE-поток как есть; клиент декодит base64 PCM-чанки и играет на лету.
+    // Путь /tts-stream проверяем ДО /tts (оба начинаются с /tts).
+    if (url.pathname.startsWith("/tts-stream")) {
+      if (request.method !== "POST") return new Response("use POST", { status: 405, headers: cors(origin) });
+      if (!env.CARTESIA_API_KEY) return new Response("no cartesia", { status: 503, headers: cors(origin) });
+      let sb;
+      try { sb = await request.json(); }
+      catch { return new Response("bad json", { status: 400, headers: cors(origin) }); }
+      const text = typeof sb.text === "string" ? sb.text.slice(0, TTS_MAX_CHARS).trim() : "";
+      if (!text) return new Response("no text", { status: 400, headers: cors(origin) });
+      try {
+        const cart = await fetch("https://api.cartesia.ai/tts/sse", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.CARTESIA_API_KEY}`,
+            "Cartesia-Version": CARTESIA_VERSION,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model_id: CARTESIA_MODEL,
+            transcript: text,
+            voice: { mode: "id", id: CARTESIA_VOICE_ID },
+            language: "ru",
+            output_format: { container: "raw", encoding: "pcm_s16le", sample_rate: 24000 },
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!cart.ok || !cart.body) {
+          const detail = await cart.text().catch(() => "");
+          return new Response(JSON.stringify({ error: "cartesia sse " + cart.status, detail: detail.slice(0, 200) }), {
+            status: 502, headers: { ...cors(origin), "Content-Type": "application/json" },
+          });
+        }
+        return new Response(cart.body, {
+          status: 200,
+          headers: { ...cors(origin), "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", "X-Jarvi-TTS": "cartesia-stream" },
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: "cartesia sse failed", detail: String((e && e.message) || e) }), {
+          status: 502, headers: { ...cors(origin), "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // ── ГОЛОС: релей на Silero-сайдкар (Aeza/Хельсинки) через Cloudflare Tunnel ──
     // edge-tts напрямую с IP Cloudflare = 403 (Microsoft режет дата-центр). Поэтому
     // голос синтезирует Silero v4_ru на Aeza (~80мс, без GPU), а Worker лишь проксирует.
@@ -197,6 +248,40 @@ export default {
       catch { return new Response("bad json", { status: 400, headers: cors(origin) }); }
       const text = typeof tb.text === "string" ? tb.text.slice(0, TTS_MAX_CHARS).trim() : "";
       if (!text) return new Response("no text", { status: 400, headers: cors(origin) });
+
+      // 1) ОСНОВНОЙ — Cartesia Sonic (sonic-3.5, русский, голос Sergei). Нет ключа/сбой → Silero ниже.
+      if (env.CARTESIA_API_KEY) {
+        try {
+          const cart = await fetch("https://api.cartesia.ai/tts/bytes", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${env.CARTESIA_API_KEY}`,
+              "Cartesia-Version": CARTESIA_VERSION,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model_id: CARTESIA_MODEL,
+              transcript: text,
+              voice: { mode: "id", id: CARTESIA_VOICE_ID },
+              language: "ru",
+              output_format: { container: "wav", encoding: "pcm_s16le", sample_rate: 44100 },
+            }),
+            signal: AbortSignal.timeout(8000),
+          });
+          if (cart.ok) {
+            const wav = await cart.arrayBuffer();
+            return new Response(wav, {
+              status: 200,
+              headers: { ...cors(origin), "Content-Type": "audio/wav", "Cache-Control": "no-store", "X-Jarvi-TTS": "cartesia" },
+            });
+          }
+          console.log("cartesia tts " + cart.status + ": " + (await cart.text().catch(() => "")).slice(0, 200));
+        } catch (e) {
+          console.log("cartesia tts error: " + String((e && e.message) || e));
+        }
+      }
+
+      // 2) ФОЛЛБЭК — Silero-сайдкар на Aeza (как было)
       try {
         const up = await fetch("https://tts.pvcloud.uk/tts", {
           method: "POST",
@@ -213,7 +298,7 @@ export default {
         const wav = await up.arrayBuffer();
         return new Response(wav, {
           status: 200,
-          headers: { ...cors(origin), "Content-Type": "audio/wav", "Cache-Control": "no-store" },
+          headers: { ...cors(origin), "Content-Type": "audio/wav", "Cache-Control": "no-store", "X-Jarvi-TTS": "silero" },
         });
       } catch (e) {
         // 502 → клиент деградирует на браузерный голос (в jarvi-engine)
