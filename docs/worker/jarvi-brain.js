@@ -67,6 +67,13 @@ const CARTESIA_MODEL = "sonic-3.5";
 const CARTESIA_VERSION = "2025-04-16";
 const CARTESIA_VOICE_ID = "1e4176b1-3db9-44d6-a601-4fe68b041942"; // Sergei — Steady Supporter (RU male)
 
+// ── Cartesia Ink (стриминг-STT, слух пока гость говорит) ──
+// WS: wss://api.cartesia.ai/stt/websocket?model=ink-whisper&encoding=pcm_s16le&sample_rate=..&language=ru&cartesia_version=..
+// Auth: заголовок X-API-Key (ключ остаётся в Worker). Аудио — сырые бинарные фреймы;
+// текстовые управляющие "finalize" (расшифровать буфер) / "close". Ответы: {type:"transcript",is_final,text(дельта)}.
+const CARTESIA_STT_VERSION = "2026-03-01";
+const CARTESIA_STT_MODEL = "ink-whisper";
+
 async function ttsSecMsGec() {
   let ticks = Math.floor(Date.now() / 1000) + 11644473600; // в Windows file-time эпоху
   ticks -= ticks % 300;                                    // вниз до 5 минут
@@ -158,6 +165,54 @@ export default {
       return new Response(JSON.stringify({ ok: true, brain: "worker", tts: true, stt: true, t: Date.now() }), {
         headers: { ...cors(origin), "Content-Type": "application/json" },
       });
+    }
+
+    // ── СЛУХ-СТРИМИНГ: мост браузер↔Cartesia Ink (WebSocket) ──
+    // Браузер шлёт PCM-фреймы мика ПОКА гость говорит → Ink расшифровывает на лету →
+    // к "замолчал" текст почти готов (быстрее, чем round-trip в Whisper после речи).
+    // Worker — прозрачный двунаправленный насос; ключ Cartesia не уходит в браузер.
+    // Клиент при любом сбое моста деградирует на batch /stt (Whisper). Проверять /stt-stream ДО /stt.
+    if (url.pathname.startsWith("/stt-stream")) {
+      if (request.headers.get("Upgrade") !== "websocket")
+        return new Response("expected websocket", { status: 426, headers: cors(origin) });
+      if (!env.CARTESIA_API_KEY)
+        return new Response("no cartesia", { status: 503, headers: cors(origin) });
+
+      const lang = (url.searchParams.get("language") || "ru").slice(0, 8);
+      const sr = String(parseInt(url.searchParams.get("sample_rate") || "16000", 10) || 16000);
+      const model = (url.searchParams.get("model") || CARTESIA_STT_MODEL).slice(0, 32);
+
+      const pair = new WebSocketPair();
+      const client = pair[0], server = pair[1];
+      server.accept();
+
+      const cartUrl = "https://api.cartesia.ai/stt/websocket"
+        + `?model=${encodeURIComponent(model)}&language=${encodeURIComponent(lang)}`
+        + `&encoding=pcm_s16le&sample_rate=${sr}&cartesia_version=${CARTESIA_STT_VERSION}`;
+      let cartResp;
+      try {
+        cartResp = await fetch(cartUrl, { headers: { Upgrade: "websocket", "X-API-Key": env.CARTESIA_API_KEY } });
+      } catch (e) {
+        try { server.send(JSON.stringify({ type: "error", message: "cartesia connect: " + String((e && e.message) || e) })); server.close(1011); } catch {}
+        return new Response(null, { status: 101, webSocket: client });
+      }
+      const cart = cartResp.webSocket;
+      if (!cart) {
+        try { server.send(JSON.stringify({ type: "error", message: "cartesia no ws (HTTP " + cartResp.status + ")" })); server.close(1011); } catch {}
+        return new Response(null, { status: 101, webSocket: client });
+      }
+      cart.accept();
+
+      // браузер → Cartesia: бинарь (PCM) и текст ("finalize"/"close") как есть
+      server.addEventListener("message", (ev) => { try { cart.send(ev.data); } catch {} });
+      server.addEventListener("close", () => { try { cart.send("close"); } catch {} try { cart.close(); } catch {} });
+      server.addEventListener("error", () => { try { cart.close(); } catch {} });
+      // Cartesia → браузер: JSON транскриптов как есть
+      cart.addEventListener("message", (ev) => { try { server.send(ev.data); } catch {} });
+      cart.addEventListener("close", () => { try { server.close(); } catch {} });
+      cart.addEventListener("error", () => { try { server.close(1011); } catch {} });
+
+      return new Response(null, { status: 101, webSocket: client });
     }
 
     // ── СЛУХ: Whisper на Workers AI (edge-GPU, бесплатный тариф) ──

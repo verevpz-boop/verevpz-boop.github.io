@@ -136,6 +136,20 @@ function floatToWavBase64(samples: Float32Array, sampleRate = 16000): string {
   return btoa(bin);
 }
 
+/** Float32 (от VAD @16к) → PCM16 (для стриминга в Cartesia Ink). */
+function floatToPcm16(f: Float32Array): Int16Array {
+  const out = new Int16Array(f.length);
+  for (let i = 0; i < f.length; i++) {
+    const s = Math.max(-1, Math.min(1, f[i]));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return out;
+}
+
+// ── СЛУХ-СТРИМИНГ (Cartesia Ink) ──
+const INK_PRE_FRAMES = 6;        // ~32мс×6 ≈ 190мс пред-речи в кольце (чтоб не срезать первый слог)
+const INK_FINALIZE_TIMEOUT = 900; // не пришёл финал за столько после "finalize" → фоллбэк на Whisper-batch
+
 export class JarviEngine {
   private ev: JarviEvents;
   private state: JarviState = "off";
@@ -146,6 +160,17 @@ export class JarviEngine {
   private hearWanted = false;          // желаемое состояние слуха
   private sttInFlight = false;         // транскрипция уже летит (не плодим параллель)
   private micStream: MediaStream | null = null;  // постоянный эхоочищенный поток
+
+  // ── стриминг-STT (Cartesia Ink): слух пока гость говорит ──
+  private sttMode: "ink" | "whisper" = "whisper"; // из config; default ink, фоллбэк всегда Whisper-batch
+  private inkWs: WebSocket | null = null;          // WS текущей реплики (мост к Cartesia Ink)
+  private inkStreaming = false;        // сейчас стримим фреймы текущей реплики
+  private inkOpen = false;             // WS открыт (можно слать)
+  private inkPending: Int16Array[] = [];   // фреймы до открытия WS (флашим на open)
+  private inkPreRing: Int16Array[] = [];   // кольцо пред-речевых фреймов
+  private inkFinals: string[] = [];        // накопленные is_final сегменты реплики
+  private inkResolve: ((t: string) => void) | null = null;  // резолвер finalize
+  private inkTimer: ReturnType<typeof setTimeout> | null = null;
   private warmTimer: ReturnType<typeof setInterval> | null = null; // держим TLS-коннект тёплым
 
   private history: Msg[] = [];
@@ -223,6 +248,9 @@ export class JarviEngine {
       this.chatBase = base;
       // живой голос — только если config просит И сайдкар на сервере жив
       this.cfgVoice = cfg.voice === "live" && h.tts ? "live" : "browser";
+      // слух: стриминг Cartesia Ink по умолчанию (флип config.stt="whisper" → старый batch-Whisper).
+      // При ЛЮБОМ сбое Ink клиент сам деградирует на Whisper-batch — голый фоллбэк безопасен.
+      this.sttMode = cfg.stt === "whisper" ? "whisper" : "ink";
       return true;
     } catch { return false; }
   }
@@ -323,6 +351,7 @@ export class JarviEngine {
     this.echoGuardText = ""; this.echoGuardUntil = 0;
     try { this.vad?.pause(); this.vad?.destroy?.(); } catch {}
     this.vad = null;
+    this.inkCloseWs(); this.inkPreRing = []; this.inkFinals = [];
     this.stopInputMeter();
     try { this.micStream?.getTracks().forEach((t) => t.stop()); } catch {}
     this.micStream = null;
@@ -353,6 +382,8 @@ export class JarviEngine {
         onSpeechStart: () => this.onSpeechStart(),
         onSpeechEnd: (audio: Float32Array) => this.onSpeechEnd(audio),
         onVADMisfire: () => { /* слишком коротко — игнор */ },
+        // каждый кадр (16к Float32) — для стриминга в Ink ВО ВРЕМЯ речи; иначе копим пред-кольцо
+        onFrameProcessed: (_p: unknown, frame: Float32Array) => this.onVadFrame(frame),
       });
       this.vad.start();
       this.trace("VAD up (v5, getStream=micStream)");
@@ -370,7 +401,9 @@ export class JarviEngine {
     if (this.state === "speaking" || this.state === "thinking") {
       this.bargeIn();   // мгновенно: cancel голоса + abort мозга, уходим в listening
     }
-    // в "listening" просто ждём конца фразы — закоммитит onSpeechEnd
+    // начинаем стримить реплику в Ink ВО ВРЕМЯ речи (и после барж-ина — состояние уже listening).
+    // в "listening" дальше просто ждём конца фразы — закоммитит onSpeechEnd.
+    if (this.sttMode === "ink" && this.hearWanted) this.inkStartUtterance();
   }
 
   /** Гость замолчал: кусок аудио → Whisper → текст → мозг. */
@@ -380,7 +413,11 @@ export class JarviEngine {
     if (this.sttInFlight) { this.trace("  ↳ DROP (sttInFlight)"); return; }
     this.sttInFlight = true;
     try {
-      const text = await this.fetchStt(audio);
+      // 1) быстрый путь: Ink уже расшифровал во время речи → finalize отдаёт текст за ~?180мс
+      let text = "";
+      if (this.sttMode === "ink" && this.inkStreaming) text = await this.inkFinalizeAndGet();
+      // 2) фоллбэк/основной: Whisper-batch на буфере VAD (Ink пуст/сбой/выключен)
+      if (!text) { this.trace("  ↳ stt fallback→whisper"); text = await this.fetchStt(audio); }
       const echo = text ? this.isEchoNow(text) : false;
       this.trace('  ↳ stt="' + text + '" echo=' + echo + " state=" + this.state);
       if (!text) return;
@@ -390,7 +427,98 @@ export class JarviEngine {
       this.commitUserUtterance(text);
     } finally {
       this.sttInFlight = false;
+      this.inkCloseWs();   // подчистить WS реплики в любом исходе
     }
+  }
+
+  // ── СЛУХ-СТРИМИНГ Cartesia Ink: мост /stt-stream, фоллбэк всегда Whisper-batch ──
+  private inkUrl(): string {
+    return this.chatBase.replace(/^http/i, "ws") + "/stt-stream?language=ru&sample_rate=16000&model=ink-whisper";
+  }
+
+  /** Каждый кадр VAD: во время реплики — в Ink; иначе копим пред-речевое кольцо. */
+  private onVadFrame(frame: Float32Array) {
+    if (this.sttMode !== "ink") return;
+    const pcm = floatToPcm16(frame);
+    if (this.inkStreaming) {
+      if (this.inkOpen && this.inkWs && this.inkWs.readyState === 1) {
+        try { this.inkWs.send(pcm.buffer); } catch {}
+      } else {
+        this.inkPending.push(pcm);            // WS ещё открывается — флашим на onopen
+      }
+    } else {
+      this.inkPreRing.push(pcm);
+      if (this.inkPreRing.length > INK_PRE_FRAMES) this.inkPreRing.shift();
+    }
+  }
+
+  /** Гость начал реплику — открываем WS к Ink и шлём пред-речь из кольца. */
+  private inkStartUtterance() {
+    if (this.inkStreaming) return;
+    this.inkCloseWs();                          // подчистить хвост прошлой реплики
+    this.inkStreaming = true;
+    this.inkOpen = false;
+    this.inkFinals = [];
+    this.inkPending = this.inkPreRing.slice();  // пред-речь идёт первой (не срезаем первый слог)
+    this.inkPreRing = [];
+    let ws: WebSocket;
+    try { ws = new WebSocket(this.inkUrl()); }
+    catch { this.trace("ink ws ctor FAIL"); this.inkStreaming = false; this.inkPending = []; return; }
+    ws.binaryType = "arraybuffer";
+    this.inkWs = ws;
+    ws.onopen = () => {
+      if (this.inkWs !== ws) { try { ws.close(); } catch {} return; }
+      this.inkOpen = true;
+      for (const f of this.inkPending) { try { ws.send(f.buffer); } catch {} }
+      this.inkPending = [];
+    };
+    ws.onmessage = (ev) => {
+      let j: { type?: string; is_final?: boolean; text?: string; message?: string };
+      try { j = JSON.parse(typeof ev.data === "string" ? ev.data : ""); } catch { return; }
+      if (j.type === "transcript") { if (j.is_final && j.text) this.inkFinals.push(j.text); }
+      else if (j.type === "flush_done" || j.type === "done") this.inkSettle();
+      else if (j.type === "error") { this.trace("ink ERR " + (j.message || "")); this.inkSettle(); }
+    };
+    ws.onerror = () => { this.trace("ink ws error"); this.inkSettle(); };
+    ws.onclose = () => { this.inkSettle(); };
+    this.trace("ink utterance start");
+  }
+
+  /** Гость замолчал — просим расшифровку буфера и ждём финал (с таймаутом → ""). */
+  private inkFinalizeAndGet(): Promise<string> {
+    return new Promise((resolve) => {
+      // WS не готов/не стримим — сразу пусто, пусть отработает Whisper-batch
+      if (!this.inkWs || !this.inkStreaming || !this.inkOpen || this.inkWs.readyState !== 1) {
+        this.inkCloseWs(); resolve(""); return;
+      }
+      this.inkResolve = resolve;
+      this.inkStreaming = false;                // больше не шлём фреймы этой реплики
+      try {
+        for (const f of this.inkPending) { try { this.inkWs.send(f.buffer); } catch {} }
+        this.inkPending = [];
+        this.inkWs.send("finalize");
+      } catch {}
+      this.inkTimer = setTimeout(() => { this.trace("ink finalize TIMEOUT"); this.inkSettle(); }, INK_FINALIZE_TIMEOUT);
+    });
+  }
+
+  /** Завершить ожидание finalize: отдать накопленный текст и закрыть WS (идемпотентно). */
+  private inkSettle() {
+    if (!this.inkResolve) return;               // finalize ещё не запрашивали — закроется в inkCloseWs
+    const text = this.inkFinals.join(" ").replace(/\s+/g, " ").trim();
+    const r = this.inkResolve; this.inkResolve = null;
+    if (this.inkTimer) { clearTimeout(this.inkTimer); this.inkTimer = null; }
+    this.inkCloseWs();
+    this.trace('ink settle "' + text + '"');
+    r(text);
+  }
+
+  /** Закрыть/сбросить WS текущей реплики (безопасно звать многократно). */
+  private inkCloseWs() {
+    if (this.inkTimer) { clearTimeout(this.inkTimer); this.inkTimer = null; }
+    const ws = this.inkWs; this.inkWs = null;
+    this.inkOpen = false; this.inkStreaming = false; this.inkPending = [];
+    if (ws) { try { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); } catch {} }
   }
 
   /** Аудио-кусок → Whisper (Cloudflare Workers AI) → текст. */
