@@ -74,6 +74,15 @@ const CARTESIA_VOICE_ID = "1e4176b1-3db9-44d6-a601-4fe68b041942"; // Sergei — 
 const CARTESIA_STT_VERSION = "2026-03-01";
 const CARTESIA_STT_MODEL = "ink-whisper";
 
+// Ручные ударения для Cartesia (в WS-пути /chat-voice текст идёт с сервера, не с клиента).
+// Зеркало ACCENT_FIXES из jarvi-engine.ts. Применяется по словам перед досылкой в Cartesia.
+function accentRuWorker(s) {
+  return s
+    .replace(/Зверев/gi, "Зв+ерев")
+    .replace(/verevpz/gi, "вер+ев пэ зэ")
+    .replace(/вер[её]впз/gi, "вер+ев пэ зэ");
+}
+
 async function ttsSecMsGec() {
   let ticks = Math.floor(Date.now() / 1000) + 11644473600; // в Windows file-time эпоху
   ticks -= ticks % 300;                                    // вниз до 5 минут
@@ -361,6 +370,134 @@ export default {
           status: 502, headers: { ...cors(origin), "Content-Type": "application/json" },
         });
       }
+    }
+
+    // ── РАЗГОВОР+ГОЛОС ОДНИМ ПОТОКОМ: токены мозга → Cartesia TTS WS (continuations) ──
+    // Джарви озвучивает, ПОКА мозг ещё пишет (input-streaming TTS). Клиенту — мультиплекс SSE:
+    // {type:"text",delta} (субтитры/история) и {type:"chunk",data} (base64 PCM s16le 24к, как /tts-stream).
+    // По умолчанию ВЫКЛ на клиенте (config.pipeline!="ws") — тумблер для ушного теста. Проверять ДО /chat.
+    if (url.pathname.startsWith("/chat-voice")) {
+      if (request.method !== "POST") return new Response("use POST", { status: 405, headers: cors(origin) });
+      if (!env.CARTESIA_API_KEY) return new Response("no cartesia", { status: 503, headers: cors(origin) });
+      let cvBody;
+      try { cvBody = await request.json(); }
+      catch { return new Response("bad json", { status: 400, headers: cors(origin) }); }
+      const cvHistory = Array.isArray(cvBody.messages)
+        ? cvBody.messages
+            .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+            .slice(-MAX_HISTORY)
+            .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }))
+        : [];
+      if (!cvHistory.length) return new Response("no messages", { status: 400, headers: cors(origin) });
+      const cvMessages = [{ role: "system", content: SYSTEM_PROMPT }, ...cvHistory];
+      const cvMaxTokens = Math.min(Number(cvBody.max_tokens) || MAX_TOKENS_CAP, MAX_TOKENS_CAP);
+
+      // 1) живой мозг (failover, как /chat) — но читаем поток МЫ
+      let brainReader = null, brainName = "";
+      for (const brain of BRAINS) {
+        const key = env[brain.keyEnv];
+        if (!key) continue;
+        try {
+          const up = await fetch(brain.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+            body: JSON.stringify({ model: brain.model, messages: cvMessages, stream: true, max_tokens: cvMaxTokens, temperature: 0.6, ...brain.extra }),
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+          });
+          if (up.ok && up.body) { brainReader = up.body.getReader(); brainName = brain.name; break; }
+        } catch {}
+      }
+      if (!brainReader) return new Response(JSON.stringify({ error: "all brains down" }), {
+        status: 502, headers: { ...cors(origin), "Content-Type": "application/json" },
+      });
+
+      // 2) Cartesia TTS WS (continuations)
+      const ctxId = ttsUuid();
+      let cart = null;
+      try {
+        const cr = await fetch(`https://api.cartesia.ai/tts/websocket?cartesia_version=${CARTESIA_VERSION}`, {
+          headers: { Upgrade: "websocket", "X-API-Key": env.CARTESIA_API_KEY },
+        });
+        cart = cr.webSocket || null;
+        if (cart) cart.accept();
+      } catch {}
+
+      const ttsMsg = (transcript, cont) => JSON.stringify({
+        model_id: CARTESIA_MODEL, transcript, voice: { mode: "id", id: CARTESIA_VOICE_ID },
+        language: "ru", context_id: ctxId, continue: cont,
+        output_format: { container: "raw", encoding: "pcm_s16le", sample_rate: 24000 },
+        max_buffer_delay_ms: 120,
+      });
+
+      const enc = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          const send = (obj) => { try { controller.enqueue(enc.encode("data: " + JSON.stringify(obj) + "\n\n")); } catch {} };
+          let cartDone = !cart;     // нет WS → голос не ждём, отдадим хотя бы текст
+          let llmDone = false;
+          let closed = false;
+          const finish = () => { if (closed) return; closed = true; try { controller.close(); } catch {} try { cart && cart.close(); } catch {} };
+          const maybeFinish = () => { if (llmDone && cartDone) finish(); };
+
+          if (cart) {
+            cart.addEventListener("message", (ev) => {
+              let j; try { j = JSON.parse(typeof ev.data === "string" ? ev.data : ""); } catch { return; }
+              if (j.type === "chunk" && j.data) send({ type: "chunk", data: j.data });
+              else if (j.type === "done") { cartDone = true; maybeFinish(); }
+              else if (j.type === "error") { cartDone = true; send({ type: "voiceerror", message: j.message || "" }); maybeFinish(); }
+            });
+            cart.addEventListener("close", () => { cartDone = true; maybeFinish(); });
+            cart.addEventListener("error", () => { cartDone = true; maybeFinish(); });
+          }
+
+          (async () => {
+            const dec = new TextDecoder();
+            let sse = "", wordBuf = "";
+            const flushWords = (final) => {
+              if (!cart) return;
+              let idx;
+              while ((idx = wordBuf.search(/\s/)) >= 0) {
+                const w = wordBuf.slice(0, idx + 1);
+                wordBuf = wordBuf.slice(idx + 1);
+                if (w.trim()) { try { cart.send(ttsMsg(accentRuWorker(w), true)); } catch {} }
+              }
+              if (final) {
+                if (wordBuf.trim()) { try { cart.send(ttsMsg(accentRuWorker(wordBuf), true)); } catch {} wordBuf = ""; }
+                try { cart.send(ttsMsg("", false)); } catch {}   // финал контекста → flush + done
+              }
+            };
+            try {
+              for (;;) {
+                const { done, value } = await brainReader.read();
+                if (done) break;
+                sse += dec.decode(value, { stream: true });
+                let nl;
+                while ((nl = sse.indexOf("\n")) >= 0) {
+                  const line = sse.slice(0, nl).trim();
+                  sse = sse.slice(nl + 1);
+                  if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+                  let j; try { j = JSON.parse(line.slice(6)); } catch { continue; }
+                  const delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+                  if (!delta) continue;
+                  send({ type: "text", delta });
+                  wordBuf += delta;
+                  flushWords(false);
+                }
+              }
+            } catch {}
+            flushWords(true);
+            llmDone = true;
+            send({ type: "text-done" });
+            if (cartDone) finish();
+            else setTimeout(() => { cartDone = true; finish(); }, 8000); // страховка: WS молчит → закрыть
+          })();
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: { ...cors(origin), "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", "X-Jarvi-Brain": brainName, "X-Jarvi-TTS": "cartesia-ws" },
+      });
     }
 
     if (request.method !== "POST" || !url.pathname.startsWith("/chat")) {

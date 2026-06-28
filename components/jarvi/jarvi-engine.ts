@@ -161,6 +161,9 @@ export class JarviEngine {
   private sttInFlight = false;         // транскрипция уже летит (не плодим параллель)
   private micStream: MediaStream | null = null;  // постоянный эхоочищенный поток
 
+  // конвейер озвучки: "sentence" (по предложениям, дефолт) | "ws" (мозг→Cartesia WS, input-streaming)
+  private pipeline: "sentence" | "ws" = "sentence";
+
   // ── стриминг-STT (Cartesia Ink): слух пока гость говорит ──
   private sttMode: "ink" | "whisper" = "whisper"; // из config; default ink, фоллбэк всегда Whisper-batch
   private inkWs: WebSocket | null = null;          // WS текущей реплики (мост к Cartesia Ink)
@@ -251,6 +254,9 @@ export class JarviEngine {
       // слух: стриминг Cartesia Ink по умолчанию (флип config.stt="whisper" → старый batch-Whisper).
       // При ЛЮБОМ сбое Ink клиент сам деградирует на Whisper-batch — голый фоллбэк безопасен.
       this.sttMode = cfg.stt === "whisper" ? "whisper" : "ink";
+      // конвейер озвучки: "ws" = input-streaming (мозг→Cartesia WS). По умолчанию sentence (текущий, проверенный).
+      // Сбой /chat-voice → клиент сам деградирует на sentence-конвейер.
+      this.pipeline = cfg.pipeline === "ws" ? "ws" : "sentence";
       return true;
     } catch { return false; }
   }
@@ -541,7 +547,9 @@ export class JarviEngine {
     this.turnT0 = performance.now();
     this.firstAudioReported = false;
     this.history.push({ role: "user", content: text });
-    this.askBrain();
+    // input-streaming (мозг→Cartesia WS) только в живом голосе с AudioContext; иначе обычный конвейер
+    if (this.pipeline === "ws" && this.voiceMode === "live" && this.audioCtx && this.analyser) this.askBrainVoiceWS();
+    else this.askBrain();
   }
 
   // ── МОЗГ: SSE-стрим ───────────────────────────────────────────────
@@ -611,6 +619,118 @@ export class JarviEngine {
     this.streamDone = true;
     this.trace("stream DONE turn=" + this.turnId + " sentences=" + this.spokenSentences.length + " queued(live=" + this.liveJobs.length + ",br=" + this.ttsQueue.length + ")");
     this.maybeFinishTurn();
+  }
+
+  // ── РАЗГОВОР+ГОЛОС ОДНИМ ПОТОКОМ: /chat-voice (мозг→Cartesia WS, input-streaming) ──
+  /** Джарви озвучивает, ПОКА мозг пишет. Мультиплекс SSE: {type:text,delta} + {type:chunk,data}.
+   *  Сквозная просодия (continuations). Сбой → фоллбэк на обычный конвейер askBrain. */
+  private async askBrainVoiceWS() {
+    this.turnId++;
+    const turn = this.turnId;
+    this.trace("askBrainVoiceWS turn=" + turn);
+    this.setState("thinking");
+    this.replyAllText = "";
+    this.spokenSentences = [];
+    this.streamDone = false;
+    this.cutMidSentence = false;
+    this.ev.onSubtitle("");
+
+    const ac = new AbortController();
+    this.llmAbort = ac;
+    let resp: Response;
+    try {
+      resp = await fetch(this.chatBase + "/chat-voice", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [{ role: "assistant", content: STUDIO_CONTEXT }, ...this.history.slice(-16)] }),
+        signal: ac.signal,
+      });
+      if (!resp.ok || !resp.body) throw new Error("chat-voice " + resp.status);
+    } catch (e) {
+      if (ac.signal.aborted) { this.trace("chat-voice aborted (barge)"); return; }
+      this.trace("chat-voice FAIL → fallback sentence: " + String((e as Error)?.message || e));
+      this.askBrain();   // мозг/мост лёг — обычный проверенный конвейер
+      return;
+    }
+    if (!this.audioCtx || !this.analyser) { this.askBrain(); return; }
+
+    const ctx = this.audioCtx;
+    const SR = 24000;
+    let cursor = ctx.currentTime + 0.06;
+    this.streamCancelled = false;
+    this.startMouth();
+
+    let fullText = "";
+    const schedule = (b64: string) => {
+      if (this.streamCancelled || turn !== this.turnId || !this.analyser) return;
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const n = bytes.byteLength >> 1;
+      if (!n) return;
+      const i16 = new Int16Array(bytes.buffer, bytes.byteOffset, n);
+      const buf = ctx.createBuffer(1, n, SR);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) ch[i] = i16[i] / 32768;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(this.analyser);
+      src.onended = () => { const k = this.liveStreamSources.indexOf(src); if (k >= 0) this.liveStreamSources.splice(k, 1); };
+      const when = Math.max(ctx.currentTime, cursor);
+      this.liveStreamSources.push(src);
+      try { src.start(when); } catch {}
+      cursor = when + buf.duration;
+      if (this.state === "thinking") this.setState("speaking");
+      this.reportFirstAudio();
+    };
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let sse = "";
+    try {
+      for (;;) {
+        if (this.streamCancelled || turn !== this.turnId) break;
+        const { done, value } = await reader.read();
+        if (done) break;
+        sse += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = sse.indexOf("\n")) >= 0) {
+          const line = sse.slice(0, nl).trim();
+          sse = sse.slice(nl + 1);
+          if (!line.startsWith("data:")) continue;
+          let j: { type?: string; delta?: string; data?: string };
+          try { j = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (j.type === "text" && j.delta) {
+            fullText += j.delta;
+            this.replyAllText = fullText;                 // эхо-щит видит весь текущий текст
+            this.ev.onSubtitle(cleanForSpeech(fullText));
+          } else if (j.type === "chunk" && j.data) {
+            schedule(j.data);
+          }
+        }
+      }
+    } catch { /* abort при барж-ине — норма */ }
+
+    if (this.streamCancelled || turn !== this.turnId) { this.stopMouth(); return; }
+
+    // дождаться доигрывания запланированного аудио (или барж-ин)
+    await new Promise<void>((resolve) => {
+      const tick = () => {
+        if (this.streamCancelled || turn !== this.turnId || !this.audioCtx) return resolve();
+        const remain = cursor - this.audioCtx.currentTime;
+        if (remain <= 0.03) return resolve();
+        setTimeout(tick, Math.min(120, Math.max(20, remain * 1000)));
+      };
+      tick();
+    });
+    this.stopMouth();
+    if (turn !== this.turnId) return;
+
+    // история (§5.2): в WS-режиме «произнесённое» ≈ весь полученный текст
+    const said = cleanForSpeech(fullText).trim();
+    if (said) { this.history.push({ role: "assistant", content: said }); this.armEchoGuard(said); }
+    this.spokenSentences = [];
+    this.replyAllText = "";
+    this.setState("listening");
   }
 
   // ── ГОЛОС: очередь по предложениям ────────────────────────────────
