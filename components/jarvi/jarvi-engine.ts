@@ -80,16 +80,32 @@ const STUDIO_CONTEXT =
   "говорящих AI-аватаров; настройку VPN и векторной памяти. " +
   "Разделы сайта: Кино, Фэшн, Гейминг, Тех, Анимация, AI-боты, TikTok, Студия.)";
 
-/** Режем накопленный стрим на завершённые предложения. */
-function splitSentences(buf: string): { ready: string[]; rest: string } {
+/** Режем накопленный стрим на завершённые предложения.
+ *  allowSoftFirst — если ещё НИЧЕГО не произнесено в этом ходу и целого предложения
+ *  пока нет, разрешаем ранний флаш ПЕРВОЙ клаузы (по запятой/тире/двоеточию), но только
+ *  если она достаточно длинная (SOFT_MIN). Так первый звук выходит раньше, а коротыши
+ *  («Да,», «Конечно,») не рубятся — один шов на ответ, интонация почти не страдает. */
+const SOFT_MIN_CHARS = 32;
+function splitSentences(buf: string, allowSoftFirst = false): { ready: string[]; rest: string } {
   const ready: string[] = [];
   let rest = buf;
   for (;;) {
     const m = rest.match(/^[\s\S]*?[.!?…]+[\s"»)\]]*\s/);
-    if (!m) break;
-    const sent = m[0].trim();
-    if (sent) ready.push(sent);
-    rest = rest.slice(m[0].length);
+    if (m) {
+      const sent = m[0].trim();
+      if (sent) ready.push(sent);
+      rest = rest.slice(m[0].length);
+      continue;
+    }
+    // целого предложения нет — пробуем ранний флаш первой длинной клаузы
+    if (allowSoftFirst && ready.length === 0) {
+      const sm = rest.match(new RegExp(`^[\\s\\S]{${SOFT_MIN_CHARS},}?[,;:—–][\\s"»)\\]]*\\s`));
+      if (sm) {
+        const clause = sm[0].trim();
+        if (clause) { ready.push(clause); rest = rest.slice(sm[0].length); }
+      }
+    }
+    break;
   }
   return { ready, rest };
 }
@@ -439,6 +455,7 @@ export class JarviEngine {
     const dec = new TextDecoder();
     let sseBuf = "";
     let textBuf = "";
+    let emitted = 0;   // сколько кусков уже отдано в озвучку (для раннего флаша первой клаузы)
     try {
       for (;;) {
         const { done, value } = await reader.read();
@@ -454,9 +471,10 @@ export class JarviEngine {
           const delta = j.choices?.[0]?.delta?.content; // reasoning игнорируем сознательно
           if (!delta) continue;
           textBuf += delta;
-          const { ready, rest } = splitSentences(textBuf);
+          const { ready, rest } = splitSentences(textBuf, emitted === 0);
           textBuf = rest;
           for (const s of ready) this.enqueueSentence(s);
+          emitted += ready.length;
         }
       }
     } catch (e) { this.trace("stream read err: " + String((e as Error)?.message || e)); /* abort при барж-ине */ }
