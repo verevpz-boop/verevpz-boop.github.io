@@ -519,9 +519,16 @@ export class JarviEngine {
     r(text);
   }
 
-  /** Закрыть/сбросить WS текущей реплики (безопасно звать многократно). */
+  /** Закрыть/сбросить WS текущей реплики (безопасно звать многократно).
+   *  КРИТИЧНО: если есть висящий finalize-await — РЕЗОЛВИМ его, иначе onSpeechEnd
+   *  зависнет навсегда и sttInFlight застрянет true → Джарви перестанет СЛЫШАТЬ
+   *  (баг «через время замолкает»: новая реплика началась, пока прошлая финализировалась). */
   private inkCloseWs() {
     if (this.inkTimer) { clearTimeout(this.inkTimer); this.inkTimer = null; }
+    if (this.inkResolve) {
+      const r = this.inkResolve; this.inkResolve = null;
+      r(this.inkFinals.join(" ").replace(/\s+/g, " ").trim());  // отдать что есть → onSpeechEnd добьёт фоллбэком
+    }
     const ws = this.inkWs; this.inkWs = null;
     this.inkOpen = false; this.inkStreaming = false; this.inkPending = [];
     if (ws) { try { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); } catch {} }
@@ -535,6 +542,7 @@ export class JarviEngine {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ audio: b64 }),
+        signal: AbortSignal.timeout(8000),   // без таймаута зависший Whisper повесил бы sttInFlight навсегда
       });
       if (!r.ok) return "";
       const j = await r.json();
