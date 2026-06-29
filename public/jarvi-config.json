@@ -2,5 +2,6 @@
   "chatBase": "https://jarvi-brain.pzverev.workers.dev",
   "sttBase": "https://jarvi-brain.pzverev.workers.dev",
   "voice": "live",
-  "stt": "ink"
+  "stt": "ink",
+  "pipeline": "ws"
 }
