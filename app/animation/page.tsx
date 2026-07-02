@@ -33,6 +33,12 @@ export default function AnimationPage() {
           aspect="9/16"
           caption="Шифу Учит — 天下 «Всё под небом»"
         />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animDrakon}
+          poster={POSTERS.animDrakon}
+          aspect="9/16"
+          caption="Шифу Учит — серия 4: Дракон 龙"
+        />
       </div>
     </SectionShell>
   );

@@ -52,6 +52,7 @@ export const R2_VIDEOS = {
   animMuha: r2("animation/muha_01.mp4"),
   animKungfu: r2("animation/kungfu_01.mp4"),
   animTianxia: r2("animation/tianxia_01.mp4"),
+  animDrakon: r2("animation/drakon_01.mp4"),
 
   /* ── Gaming ─────────────────────────────────────────────────────────── */
   raidMasterfinal: r2("gaming/raid_masterfinal.mp4"),
@@ -122,4 +123,5 @@ export const POSTERS = {
   animMuha: "/posters/animation/muha.jpg",
   animKungfu: "/posters/animation/kungfu.jpg",
   animTianxia: "/posters/animation/tianxia.jpg",
+  animDrakon: "/posters/animation/drakon.jpg",
 } as const;
