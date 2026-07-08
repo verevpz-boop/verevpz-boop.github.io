@@ -3,5 +3,6 @@
   "sttBase": "https://jarvi-brain.pzverev.workers.dev",
   "voice": "live",
   "stt": "ink",
-  "pipeline": "sentence"
+  "pipeline": "sentence",
+  "turn": "fixed"
 }

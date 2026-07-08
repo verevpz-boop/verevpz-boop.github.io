@@ -33,6 +33,12 @@ const ORT_VER = "1.26.0";
 const VAD_ASSETS = `https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@${VAD_VER}/dist/`;
 const ORT_WASM = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VER}/dist/`;
 
+// ── Smart Turn (config.turn="smart") ──
+const TURN_COMPLETE_THR = 0.5;   // prob ≥ порог → гость договорил (как в pipecat inference.py)
+const TURN_HOLD_MAX_MS = 2500;   // держим «незаконченную» реплику не дольше — потом коммит принудительно
+const TURN_PREDICT_TIMEOUT_MS = 500; // предсказание дольше — считаем «договорил» (фоллбэк на фикс)
+const TURN_MAX_SAMPLES = 16000 * 8;  // Smart Turn смотрит последние 8с
+
 const ECHO_OVERLAP = 0.6;       // доля слов из своей реплики → это эхо
 const ECHO_TAIL_MS = 1800;      // после речи Джарви ещё столько держим эхо-щит (звук из колонок доходит с задержкой)
 
@@ -240,6 +246,13 @@ export class JarviEngine {
   // конвейер озвучки: "sentence" (по предложениям, дефолт) | "ws" (мозг→Cartesia WS, input-streaming)
   private pipeline: "sentence" | "ws" = "sentence";
 
+  // ── детектор конца реплики: "fixed" (VAD-пауза redemptionMs, дефолт) | "smart" (Smart Turn v3 ML) ──
+  private turnMode: "fixed" | "smart" = "fixed";
+  private smartTurn: import("./jarvi-smart-turn").SmartTurn | null = null;
+  private turnBuf: Float32Array[] = [];    // сегменты реплики, склеиваемые при мид-паузах (smart)
+  private turnHoldTimer: ReturnType<typeof setTimeout> | null = null; // safety-коммит если гость завис
+  private turnEvalInFlight = false;        // идёт предсказание Smart Turn (не плодим параллель)
+
   // ── стриминг-STT (Cartesia Ink): слух пока гость говорит ──
   private sttMode: "ink" | "whisper" = "whisper"; // из config; default ink, фоллбэк всегда Whisper-batch
   private inkWs: WebSocket | null = null;          // WS текущей реплики (мост к Cartesia Ink)
@@ -333,6 +346,8 @@ export class JarviEngine {
       // конвейер озвучки: "ws" = input-streaming (мозг→Cartesia WS). По умолчанию sentence (текущий, проверенный).
       // Сбой /chat-voice → клиент сам деградирует на sentence-конвейер.
       this.pipeline = cfg.pipeline === "ws" ? "ws" : "sentence";
+      // детектор конца реплики: smart (Smart Turn v3) — флип config.turn="smart"; иначе фикс-пауза VAD
+      this.turnMode = cfg.turn === "smart" ? "smart" : "fixed";
       return true;
     } catch { return false; }
   }
@@ -389,6 +404,15 @@ export class JarviEngine {
     if (!ok) { this.setState("denied"); return; }
     this.startInputMeter();   // громкость мика гостя → пульсация значка «слушаю»
 
+    // Smart Turn: ленивая загрузка модели в фоне (не блокирует старт; не готова → фикс-пауза)
+    if (this.turnMode === "smart" && !this.smartTurn) {
+      import("./jarvi-smart-turn").then(async (m) => {
+        this.smartTurn = new m.SmartTurn();
+        const okST = await this.smartTurn.init();
+        this.trace("SmartTurn " + (okST ? "ready" : "FAILED→fixed"));
+      }).catch(() => { this.trace("SmartTurn import FAIL→fixed"); });
+    }
+
     // тёплый пинг: без него туннель/TLS остывает и первый ответ дорожает на сотни мс
     this.warmTimer = setInterval(() => {
       if (this.state === "listening" || this.state === "idle")
@@ -433,6 +457,8 @@ export class JarviEngine {
     this.echoGuardText = ""; this.echoGuardUntil = 0;
     try { this.vad?.pause(); this.vad?.destroy?.(); } catch {}
     this.vad = null;
+    if (this.turnHoldTimer) { clearTimeout(this.turnHoldTimer); this.turnHoldTimer = null; }
+    this.turnBuf = []; this.turnEvalInFlight = false;
     this.inkCloseWs(); this.inkPreRing = []; this.inkFinals = [];
     this.stopInputMeter();
     try { this.micStream?.getTracks().forEach((t) => t.stop()); } catch {}
@@ -480,6 +506,8 @@ export class JarviEngine {
   /** Гость заговорил. Если Джарви в этот момент говорит/думает — это перебивание. */
   private onSpeechStart() {
     this.trace("vad:speechStart state=" + this.state);
+    // Smart Turn держит «незаконченную» реплику — гость продолжил → отменяем safety-коммит, склеим сегмент
+    if (this.turnHoldTimer) { clearTimeout(this.turnHoldTimer); this.turnHoldTimer = null; this.trace("  ↳ turn continue (hold cancelled)"); }
     if (this.state === "speaking" || this.state === "thinking") {
       this.bargeIn();   // мгновенно: cancel голоса + abort мозга, уходим в listening
     }
@@ -488,18 +516,66 @@ export class JarviEngine {
     if (this.sttMode === "ink" && this.hearWanted) this.inkStartUtterance();
   }
 
-  /** Гость замолчал: кусок аудио → Whisper → текст → мозг. */
+  /** Гость замолчал. В fixed — сразу коммит; в smart — сперва Smart Turn решает, договорил ли. */
   private async onSpeechEnd(audio: Float32Array) {
     this.trace("vad:speechEnd samples=" + audio.length + " state=" + this.state + " inFlight=" + this.sttInFlight);
     if (!this.hearWanted) return;
-    if (this.sttInFlight) { this.trace("  ↳ DROP (sttInFlight)"); return; }
+    if (this.sttInFlight || this.turnEvalInFlight) { this.trace("  ↳ DROP (inFlight)"); return; }
+
+    // ── Smart Turn: договорил ли гость? (иначе — держим и ждём продолжения) ──
+    if (this.turnMode === "smart" && this.smartTurn?.ready) {
+      this.turnBuf.push(audio);
+      const merged = this.concatTurn();
+      let prob = 1;                                   // сбой/таймаут предсказания → «договорил» (фоллбэк на фикс)
+      this.turnEvalInFlight = true;
+      try { prob = await this.withTimeout(this.smartTurn.predict(merged.subarray(Math.max(0, merged.length - TURN_MAX_SAMPLES))), TURN_PREDICT_TIMEOUT_MS, 1); }
+      catch { prob = 1; }
+      finally { this.turnEvalInFlight = false; }
+      this.trace("  ↳ smartTurn prob=" + prob.toFixed(3) + " segs=" + this.turnBuf.length);
+      if (prob < TURN_COMPLETE_THR) {
+        // не договорил → держим реплику; продолжит (speechStart отменит) либо safety-коммит по таймауту
+        if (this.turnHoldTimer) clearTimeout(this.turnHoldTimer);
+        this.turnHoldTimer = setTimeout(() => { this.turnHoldTimer = null; void this.commitTurn(this.concatTurn(), true); }, TURN_HOLD_MAX_MS);
+        return;
+      }
+      if (this.turnHoldTimer) { clearTimeout(this.turnHoldTimer); this.turnHoldTimer = null; }
+      await this.commitTurn(merged, this.turnBuf.length > 1);
+      return;
+    }
+
+    // ── fixed (дефолт): коммит сразу ──
+    await this.commitTurn(audio, false);
+  }
+
+  /** Склейка сегментов реплики в один Float32 (для smart-merge). */
+  private concatTurn(): Float32Array {
+    if (this.turnBuf.length === 1) return this.turnBuf[0];
+    const total = this.turnBuf.reduce((s, a) => s + a.length, 0);
+    const out = new Float32Array(total);
+    let o = 0; for (const a of this.turnBuf) { out.set(a, o); o += a.length; }
+    return out;
+  }
+
+  /** Промис с таймаутом: не успел за ms → отдаём fallback. */
+  private withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+    return new Promise<T>((resolve) => {
+      let done = false;
+      const t = setTimeout(() => { if (!done) { done = true; resolve(fallback); } }, ms);
+      p.then((v) => { if (!done) { done = true; clearTimeout(t); resolve(v); } })
+       .catch(() => { if (!done) { done = true; clearTimeout(t); resolve(fallback); } });
+    });
+  }
+
+  /** Транскрипция куска → мозг. merged=true (склейка мид-пауз) → Whisper на всей склейке (Ink неполон). */
+  private async commitTurn(audio: Float32Array, merged: boolean) {
+    if (this.sttInFlight) { this.trace("  ↳ DROP commit (sttInFlight)"); return; }
     this.sttInFlight = true;
     try {
-      // 1) быстрый путь: Ink уже расшифровал во время речи → finalize отдаёт текст за ~?180мс
+      // 1) быстрый путь Ink (только для одиночного сегмента): finalize отдаёт текст за ~180мс
       let text = "";
-      if (this.sttMode === "ink" && this.inkStreaming) text = await this.inkFinalizeAndGet();
-      // 2) фоллбэк/основной: Whisper-batch на буфере VAD (Ink пуст/сбой/выключен)
-      if (!text) { this.trace("  ↳ stt fallback→whisper"); text = await this.fetchStt(audio); }
+      if (!merged && this.sttMode === "ink" && this.inkStreaming) text = await this.inkFinalizeAndGet();
+      // 2) фоллбэк/основной: Whisper-batch на буфере (Ink пуст/сбой/выключен/склейка)
+      if (!text) { this.trace("  ↳ stt " + (merged ? "merged→" : "fallback→") + "whisper"); text = await this.fetchStt(audio); }
       const echo = text ? this.isEchoNow(text) : false;
       this.trace('  ↳ stt="' + text + '" echo=' + echo + " state=" + this.state);
       if (!text) return;
@@ -510,6 +586,7 @@ export class JarviEngine {
     } finally {
       this.sttInFlight = false;
       this.inkCloseWs();   // подчистить WS реплики в любом исходе
+      this.turnBuf = [];   // реплика закоммичена — чистим склейку
     }
   }
 
