@@ -18,7 +18,10 @@
 - **Слух:** VAD Silero (@ricky0123/vad-web) + **стриминг-STT Cartesia Ink** (ink-whisper ru), фоллбэк Whisper-batch.
 - **Голос:** **Cartesia Sonic-3.5, Sergei (ru), стриминг TTS ~90мс** (не edge-tts). Фоллбэк: WAV→Silero/Aeza→браузер.
 - **Мозг:** Worker failover-цепочка. **Прод serverless** (Cloudflare Worker + GitHub Pages) — правила §1 соблюдены.
-- **🥷 Smart Turn v3 (Pipecat) — ВСТРОЕН и ВКЛЮЧЁН на проде** (`config.turn="smart"`): ML определяет конец реплики по просодии вместо фикс-паузы. Верифицирован против Python-эталона (до 0.0). Мгновенный откат — `turn="fixed"` (золотой baseline, тоже «идеально»).
+- **Детектор конца реплики — ДВА первоклассных режима, оба Pavel одобрил ухом:**
+  - `turn="fixed"` — **СТАРОЕ наше решение** (фикс-пауза VAD redemptionMs=300). Pavel 2026-07-08: «со старым решением всё было нехуёво / пиздато». Это НЕ запасной костыль, а полноценный проверенный вариант.
+  - `turn="smart"` — **🥷 Smart Turn v3 (Pipecat)**, ML по просодии; верифицирован против Python-эталона (до 0.0). Включён на проде дефолтом.
+  - Тумблер `config.turn` свободно переключает между ними; сбой smart → авто-фоллбэк на fixed (немым не остаётся).
 - Полное состояние: `HANDOFF_JARVI_VOICE_2026-06-28.md`; сравнение с Pipecat + интеграция Smart Turn: `COMPARE_JARVI_VS_PIPECAT_2026-07-08.md` §8.
 - Тумблеры (`public/jarvi-config.json`): `stt`(ink|whisper) · `pipeline`(sentence|ws) · `turn`(smart|fixed).
 
