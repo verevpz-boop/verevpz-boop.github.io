@@ -6,7 +6,21 @@
 > Кто строит «ещё одного Джарви» — читает ЭТОТ файл первым. Связанные: `TZ_JARVI.md`
 > (ТЗ), `SIGNATURE_HEAD.md` (визуал головы), `SITE_DECISIONS.md` (журнал сайта).
 >
-> Дата последней крупной правки: **2026-06-13** (слух переведён на VAD + Cloudflare Whisper).
+> Дата последней крупной правки: **2026-07-08**.
+
+---
+
+## 🏁 СТАТУС: ГОТОВО И В ПРОДЕ — Pavel: «работает идеально, очень нравится» (2026-07-08)
+Проект **завершён и принят вживую**. Джарви на `verevpz-boop.github.io/ai-bots/` слышит, думает,
+отвечает мгновенно и перебивается — Pavel подтвердил ухом «охуенно / идеально».
+**Актуальный боевой стек** (обновляет TL;DR §2, который частично исторический — wireframe/edge-tts устарели):
+- **Голова:** полноценный VRM-дворецкий (`jarvi-butler.vrm`, @pixiv/three-vrm), липсинк = expression `aa` + моргание/взгляд/дыхание. (Не wireframe.)
+- **Слух:** VAD Silero (@ricky0123/vad-web) + **стриминг-STT Cartesia Ink** (ink-whisper ru), фоллбэк Whisper-batch.
+- **Голос:** **Cartesia Sonic-3.5, Sergei (ru), стриминг TTS ~90мс** (не edge-tts). Фоллбэк: WAV→Silero/Aeza→браузер.
+- **Мозг:** Worker failover-цепочка. **Прод serverless** (Cloudflare Worker + GitHub Pages) — правила §1 соблюдены.
+- **🥷 Smart Turn v3 (Pipecat) — ВСТРОЕН и ВКЛЮЧЁН на проде** (`config.turn="smart"`): ML определяет конец реплики по просодии вместо фикс-паузы. Верифицирован против Python-эталона (до 0.0). Мгновенный откат — `turn="fixed"` (золотой baseline, тоже «идеально»).
+- Полное состояние: `HANDOFF_JARVI_VOICE_2026-06-28.md`; сравнение с Pipecat + интеграция Smart Turn: `COMPARE_JARVI_VS_PIPECAT_2026-07-08.md` §8.
+- Тумблеры (`public/jarvi-config.json`): `stt`(ink|whisper) · `pipeline`(sentence|ws) · `turn`(smart|fixed).
 
 ---
 
