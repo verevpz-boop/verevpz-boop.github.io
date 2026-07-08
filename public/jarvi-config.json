@@ -4,5 +4,5 @@
   "voice": "live",
   "stt": "ink",
   "pipeline": "sentence",
-  "turn": "fixed"
+  "turn": "smart"
 }
