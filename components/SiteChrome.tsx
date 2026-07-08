@@ -11,12 +11,16 @@ import { JarviHostClient } from "@/components/jarvi/jarvi-host-client";
  */
 export function SiteChrome() {
   const pathname = usePathname();
-  const isHome = (pathname.replace(/\/$/, "") || "/") === "/";
+  const path = pathname.replace(/\/$/, "") || "/";
+  const isHome = path === "/";
+  // На /ai-bots уже живёт большой Джарви (JarviClient) — угловой хост там не нужен
+  // (дубль + второй WebGL-контекст гасил большую голову). Скрываем его на этой странице.
+  const isAiBots = path === "/ai-bots";
 
   return (
     <>
       {!isHome && <SiteNav />}
-      <JarviHostClient />
+      {!isAiBots && <JarviHostClient />}
     </>
   );
 }
