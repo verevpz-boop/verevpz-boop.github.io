@@ -39,6 +39,24 @@ export default function AnimationPage() {
           aspect="9/16"
           caption="Шифу Учит — серия 4: Дракон 龙"
         />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animBaoen}
+          poster={POSTERS.animBaoen}
+          aspect="9/16"
+          caption="Шифу Учит — серия 5: 报恩 «Отплатить за добро»"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animHeng}
+          poster={POSTERS.animHeng}
+          aspect="9/16"
+          caption="Шифу Учит — серия 6: 恒 «Капля точит камень»"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animMing}
+          poster={POSTERS.animMing}
+          aspect="9/16"
+          caption="Шифу Учит — серия 7: 明 «Ходит вокруг»"
+        />
       </div>
     </SectionShell>
   );

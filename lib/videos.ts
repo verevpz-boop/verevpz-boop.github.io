@@ -53,6 +53,9 @@ export const R2_VIDEOS = {
   animKungfu: r2("animation/kungfu_01.mp4"),
   animTianxia: r2("animation/tianxia_01.mp4"),
   animDrakon: r2("animation/drakon_01.mp4"),
+  animBaoen: r2("animation/baoen_01.mp4"),
+  animHeng: r2("animation/heng_01.mp4"),
+  animMing: r2("animation/ming_01.mp4"),
 
   /* ── Gaming ─────────────────────────────────────────────────────────── */
   raidMasterfinal: r2("gaming/raid_masterfinal.mp4"),
@@ -124,4 +127,7 @@ export const POSTERS = {
   animKungfu: "/posters/animation/kungfu.jpg",
   animTianxia: "/posters/animation/tianxia.jpg",
   animDrakon: "/posters/animation/drakon.jpg",
+  animBaoen: "/posters/animation/baoen.jpg",
+  animHeng: "/posters/animation/heng.jpg",
+  animMing: "/posters/animation/ming.jpg",
 } as const;
