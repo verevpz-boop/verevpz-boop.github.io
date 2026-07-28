@@ -43,6 +43,20 @@ const ECHO_OVERLAP = 0.6;       // доля слов из своей репли�
 const ECHO_TAIL_MS = 1800;      // после речи Джарви ещё столько держим эхо-щит (звук из колонок доходит с задержкой)
 
 type Msg = { role: "user" | "assistant"; content: string };
+type LectureChapter = {
+  id: string;
+  title: string;
+  audio: string;
+  aliases: string[];
+  text: string;
+};
+type LecturePack = {
+  version: number;
+  title: string;
+  intro: string;
+  knowledge: string;
+  chapters: LectureChapter[];
+};
 
 // минимальный тип инстанса VAD (типы либы подтягиваются динамическим импортом)
 type VadInstance = { start: () => void; pause: () => void; destroy?: () => void };
@@ -148,18 +162,26 @@ const AIRSAT_CONTEXT =
 /** Worker режет КАЖДОЕ сообщение до 2000 символов (jarvi-brain: content.slice(0,2000)) —
  *  поэтому контекст едет НЕСКОЛЬКИМИ assistant-сообщениями ≤1900 симв. (режем по границе
  *  предложения). Бюджет Worker'а MAX_HISTORY=24: 1 студия + ~3 AIRSAT + 16 истории = 20, влезает. */
-function contextMessages(): { role: "assistant"; content: string }[] {
+function chunkAssistantContext(parts: string[]): { role: "assistant"; content: string }[] {
   const LIM = 1900;
-  const parts: string[] = [STUDIO_CONTEXT];
-  let rest = AIRSAT_CONTEXT;
-  while (rest.length > LIM) {
-    let cut = rest.lastIndexOf(". ", LIM);
-    if (cut < LIM * 0.5) cut = LIM;
-    parts.push(rest.slice(0, cut + 1).trim());
-    rest = rest.slice(cut + 1);
+  const chunks: string[] = [];
+  for (const part of parts) {
+    let rest = part;
+    while (rest.length > LIM) {
+      let cut = rest.lastIndexOf(". ", LIM);
+      if (cut < LIM * 0.5) cut = LIM;
+      chunks.push(rest.slice(0, cut + 1).trim());
+      rest = rest.slice(cut + 1);
+    }
+    if (rest.trim()) chunks.push(rest.trim());
   }
-  if (rest.trim()) parts.push(rest.trim());
-  return parts.map((content) => ({ role: "assistant" as const, content }));
+  return chunks.map((content) => ({ role: "assistant" as const, content }));
+}
+
+/** В обычном разговоре едет AIRSAT. В режиме лекции вместо него подключается
+ *  отдельный пакет «Знание», чтобы не превысить Worker MAX_HISTORY=24. */
+function contextMessages(topicContext = ""): { role: "assistant"; content: string }[] {
+  return chunkAssistantContext([STUDIO_CONTEXT, topicContext || AIRSAT_CONTEXT]);
 }
 
 /** Режем накопленный стрим на завершённые предложения.
@@ -268,6 +290,18 @@ export class JarviEngine {
   private history: Msg[] = [];
   private llmAbort: AbortController | null = null;
 
+  // ── тематическая лекция «Знание»: готовое аудио + интерактив по той же базе ──
+  private lecturePack: LecturePack | null = null;
+  private lecturePackPromise: Promise<LecturePack | null> | null = null;
+  private lectureActive = false;
+  private lecturePlaying = false;
+  private lectureChapter = 0;
+  private lectureOffset = 0;
+  private lectureStartedAt = 0;
+  private lectureSource: AudioBufferSourceNode | null = null;
+  private lectureToken = 0;
+  private lectureBuffers = new Map<string, AudioBuffer>();
+
   private voice: SpeechSynthesisVoice | null = null;
   private ttsQueue: string[] = [];
   private speakingNow = "";           // текст текущего предложения в динамиках
@@ -373,18 +407,17 @@ export class JarviEngine {
     // конфиг → база прокси + проверка мозга (и прогрев TLS)
     if (!(await this.resolveBrain())) { this.hearWanted = true; this.goSleep(); return; }
 
-    // голосовой режим из config; AudioContext создаём ВНУТРИ жеста (иначе suspended)
+    // AudioContext создаём ВНУТРИ жеста (иначе suspended). Он нужен не только
+    // живому TTS, но и готовым лекциям с паузой/продолжением и липсинком.
     this.voiceMode = this.cfgVoice;
-    if (this.voiceMode === "live") {
-      try {
-        const Ctor = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
-        this.audioCtx = new Ctor();
-        this.analyser = this.audioCtx.createAnalyser();
-        this.analyser.fftSize = 512;
-        this.analyser.connect(this.audioCtx.destination);
-        await this.audioCtx.resume();
-      } catch { this.voiceMode = "browser"; this.audioCtx = null; this.analyser = null; }
-    }
+    try {
+      const Ctor = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+      this.audioCtx = new Ctor();
+      this.analyser = this.audioCtx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.analyser.connect(this.audioCtx.destination);
+      await this.audioCtx.resume();
+    } catch { this.voiceMode = "browser"; this.audioCtx = null; this.analyser = null; }
 
     // разблокировка speechSynthesis внутри жеста (нужна и как фоллбэк живого режима)
     try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
@@ -419,6 +452,12 @@ export class JarviEngine {
         fetch(this.chatBase + "/health", { cache: "no-store" }).catch(() => {});
     }, 25_000);
     this.setState("listening");
+    // Тихо прогреваем только манифест и первую главу: команда «лекция по Знанию»
+    // стартует сразу, а остальные главы подкачиваются по ходу прослушивания.
+    void this.loadLecturePack().then((pack) => {
+      const first = pack?.chapters[0];
+      if (first) void this.getLectureBuffer(first).catch(() => {});
+    });
     this.greet();  // Джарви здоровается голосом ПОСЛЕ старта (не по касанию — не обрывается)
   }
 
@@ -463,6 +502,7 @@ export class JarviEngine {
     this.stopInputMeter();
     try { this.micStream?.getTracks().forEach((t) => t.stop()); } catch {}
     this.micStream = null;
+    this.endLecture(false);
     this.stopSpeech();
     this.llmAbort?.abort();
     this.history = [];
@@ -508,7 +548,9 @@ export class JarviEngine {
     this.trace("vad:speechStart state=" + this.state);
     // Smart Turn держит «незаконченную» реплику — гость продолжил → отменяем safety-коммит, склеим сегмент
     if (this.turnHoldTimer) { clearTimeout(this.turnHoldTimer); this.turnHoldTimer = null; this.trace("  ↳ turn continue (hold cancelled)"); }
-    if (this.state === "speaking" || this.state === "thinking") {
+    if (this.lecturePlaying) {
+      this.pauseLecture();
+    } else if (this.state === "speaking" || this.state === "thinking") {
       this.bargeIn();   // мгновенно: cancel голоса + abort мозга, уходим в listening
     }
     // начинаем стримить реплику в Ink ВО ВРЕМЯ речи (и после барж-ина — состояние уже listening).
@@ -707,10 +749,237 @@ export class JarviEngine {
     this.trace('COMMIT "' + text + '"');
     this.turnT0 = performance.now();
     this.firstAudioReported = false;
+    const n = normalize(text);
+    const command = n.replace(/^(джарви|джарвис|жарви|жарвис)\s+/, "");
+
+    if (this.isZnanieLectureStart(n)) {
+      void this.startLecture();
+      return;
+    }
+
+    if (this.lectureActive) {
+      if (/^(закончи|останови|выключи|хватит)( лекци| брифинг)?/.test(command)) {
+        this.endLecture(true);
+        return;
+      }
+      if (/^(продолж|возобнов)/.test(command)) {
+        void this.playLectureChapter(this.lectureChapter, this.lectureOffset);
+        return;
+      }
+      if (/^(дальше|следующ)/.test(command)) {
+        const last = Math.max(0, (this.lecturePack?.chapters.length || 1) - 1);
+        void this.playLectureChapter(Math.min(last, this.lectureChapter + 1), 0);
+        return;
+      }
+      if (/^(повтор|сначала эту главу)/.test(command)) {
+        void this.playLectureChapter(this.lectureChapter, 0);
+        return;
+      }
+      const words = command.split(" ").filter(Boolean);
+      const chapterCommand = /^(перейди|глава|раздел|давай|расскажи про)/.test(command) || words.length <= 3;
+      if (chapterCommand) {
+        const chapter = this.findLectureChapter(command);
+        if (chapter >= 0) {
+          void this.playLectureChapter(chapter, 0);
+          return;
+        }
+      }
+    }
+
     this.history.push({ role: "user", content: text });
     // input-streaming (мозг→Cartesia WS) только в живом голосе с AudioContext; иначе обычный конвейер
     if (this.pipeline === "ws" && this.voiceMode === "live" && this.audioCtx && this.analyser) this.askBrainVoiceWS();
     else this.askBrain();
+  }
+
+  private isZnanieLectureStart(n: string): boolean {
+    const topic = /(^| )знани(е|ю|я|ем|и)?( |$)/.test(n) || n.includes("обществ знани");
+    const lecture = n.includes("лекц") || n.includes("брифинг") || n.includes("расскажи");
+    return topic && lecture;
+  }
+
+  private async loadLecturePack(): Promise<LecturePack | null> {
+    if (this.lecturePack) return this.lecturePack;
+    if (!this.lecturePackPromise) {
+      this.lecturePackPromise = fetch("/jarvi-knowledge/znanie.json", { cache: "no-store" })
+        .then(async (r) => {
+          if (!r.ok) throw new Error("lecture manifest " + r.status);
+          const pack = await r.json() as LecturePack;
+          if (!pack.chapters?.length || !pack.knowledge) throw new Error("lecture manifest empty");
+          this.lecturePack = pack;
+          return pack;
+        })
+        .catch((e) => {
+          this.trace("lecture pack FAIL: " + String((e as Error)?.message || e));
+          this.lecturePackPromise = null;
+          return null;
+        });
+    }
+    return this.lecturePackPromise;
+  }
+
+  private async startLecture() {
+    this.llmAbort?.abort();
+    this.stopSpeech();
+    this.setState("thinking");
+    this.ev.onSubtitle("Готовлю брифинг по обществу «Знание»…");
+    const pack = await this.loadLecturePack();
+    if (!pack || !this.audioCtx || !this.analyser) {
+      this.lectureActive = false;
+      this.speakControlLine("Не удалось открыть лекцию. Попробуйте ещё раз через минуту.");
+      return;
+    }
+    this.lectureActive = true;
+    this.lectureChapter = 0;
+    this.lectureOffset = 0;
+    await this.playLectureChapter(0, 0);
+  }
+
+  private findLectureChapter(n: string): number {
+    const chapters = this.lecturePack?.chapters || [];
+    let best = -1;
+    let bestLen = 0;
+    chapters.forEach((chapter, index) => {
+      for (const alias of chapter.aliases || []) {
+        const a = normalize(alias);
+        if (a.length > bestLen && n.includes(a)) {
+          best = index;
+          bestLen = a.length;
+        }
+      }
+    });
+    return best;
+  }
+
+  private async getLectureBuffer(chapter: LectureChapter): Promise<AudioBuffer> {
+    const cached = this.lectureBuffers.get(chapter.id);
+    if (cached) return cached;
+    if (!this.audioCtx) throw new Error("no audio context");
+    const r = await fetch(chapter.audio);
+    if (!r.ok) throw new Error("lecture audio " + r.status);
+    const buf = await this.audioCtx.decodeAudioData(await r.arrayBuffer());
+    this.lectureBuffers.set(chapter.id, buf);
+    return buf;
+  }
+
+  private async playLectureChapter(index: number, offset: number) {
+    const pack = await this.loadLecturePack();
+    if (!pack || !this.audioCtx || !this.analyser) return;
+    const chapter = pack.chapters[index];
+    if (!chapter) return;
+
+    this.pauseLecture(false);
+    this.lectureActive = true;
+    this.lectureChapter = index;
+    this.lectureOffset = Math.max(0, offset);
+    this.setState("thinking");
+    this.ev.onSubtitle(`Лекция «Знание» · ${index + 1} из ${pack.chapters.length}: ${chapter.title}`);
+
+    let buffer: AudioBuffer;
+    try {
+      buffer = await this.getLectureBuffer(chapter);
+    } catch (e) {
+      this.trace("lecture audio FAIL: " + String((e as Error)?.message || e));
+      this.speakControlLine("Аудио этой главы пока недоступно. Можете задать мне вопрос по материалу.");
+      return;
+    }
+
+    const startAt = Math.min(this.lectureOffset, Math.max(0, buffer.duration - 0.05));
+    const token = ++this.lectureToken;
+    const src = this.audioCtx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(this.analyser);
+    this.lectureSource = src;
+    this.lecturePlaying = true;
+    this.lectureOffset = startAt;
+    this.lectureStartedAt = this.audioCtx.currentTime;
+    this.replyAllText = chapter.text;
+    this.setState("speaking");
+    this.startMouth();
+    this.reportFirstAudio();
+    const next = pack.chapters[index + 1];
+    if (next) void this.getLectureBuffer(next).catch(() => {});
+
+    src.onended = () => {
+      if (token !== this.lectureToken || !this.lecturePlaying) return;
+      this.lectureSource = null;
+      this.lecturePlaying = false;
+      this.lectureOffset = 0;
+      this.replyAllText = "";
+      this.stopMouth();
+      this.armEchoGuard(chapter.text);
+      if (index + 1 < pack.chapters.length) {
+        void this.playLectureChapter(index + 1, 0);
+      } else {
+        this.lectureChapter = index;
+        this.ev.onSubtitle("Брифинг завершён. Можно повторить главу или задать вопрос.");
+        this.setState("listening");
+      }
+    };
+    try { src.start(0, startAt); }
+    catch {
+      this.lecturePlaying = false;
+      this.lectureSource = null;
+      this.stopMouth();
+      this.setState("listening");
+    }
+  }
+
+  /** Пауза запоминает точную секунду, чтобы «продолжай» вернуло к месту перебивания. */
+  private pauseLecture(keepActive = true) {
+    if (this.lecturePlaying && this.audioCtx) {
+      this.lectureOffset += Math.max(0, this.audioCtx.currentTime - this.lectureStartedAt);
+    }
+    this.lecturePlaying = false;
+    this.lectureToken++;
+    if (this.lectureSource) {
+      try { this.lectureSource.onended = null; this.lectureSource.stop(); } catch {}
+      this.lectureSource = null;
+    }
+    this.replyAllText = "";
+    this.stopMouth();
+    if (!keepActive) return;
+    this.lectureActive = true;
+    this.ev.onSubtitle("Лекция на паузе. Слушаю ваш вопрос.");
+    this.setState("listening");
+  }
+
+  private endLecture(acknowledge: boolean) {
+    this.pauseLecture(false);
+    this.lectureActive = false;
+    this.lectureChapter = 0;
+    this.lectureOffset = 0;
+    if (acknowledge) this.speakControlLine("Лекция завершена.");
+  }
+
+  private speakControlLine(text: string) {
+    this.turnId++;
+    this.replyAllText = "";
+    this.spokenSentences = [];
+    this.ttsQueue = [];
+    this.liveJobs = [];
+    this.streamDone = false;
+    this.cutMidSentence = false;
+    this.setState("thinking");
+    this.ev.onSubtitle(text);
+    this.enqueueSentence(text);
+    this.streamDone = true;
+    this.maybeFinishTurn();
+  }
+
+  private requestMessages(): Msg[] {
+    if (!this.lectureActive || !this.lecturePack) {
+      return [...contextMessages(), ...this.history.slice(-16)];
+    }
+    const chapter = this.lecturePack.chapters[this.lectureChapter];
+    const mode =
+      `(Режим интерактива по лекции «Знание». Сейчас на паузе глава «${chapter?.title || "неизвестна"}». ` +
+      `Ответь на вопрос по базе точно и разговорно, максимум двумя короткими предложениями. ` +
+      `В конце спроси: «Продолжить лекцию?» Не выдумывай внутренние факты; непроверенные выводы называй гипотезой.)`;
+    return [
+      ...contextMessages(this.lecturePack.knowledge + " " + mode),
+      ...this.history.slice(-12),
+    ];
   }
 
   // ── МОЗГ: SSE-стрим ───────────────────────────────────────────────
@@ -735,7 +1004,7 @@ export class JarviEngine {
       resp = await fetch(this.chatBase + "/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...contextMessages(), ...this.history.slice(-16)] }),
+        body: JSON.stringify({ messages: this.requestMessages() }),
         signal: ac.signal,
       });
       if (!resp.ok || !resp.body) throw new Error("chat " + resp.status);
@@ -802,7 +1071,7 @@ export class JarviEngine {
     try {
       resp = await fetch(this.chatBase + "/chat-voice", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...contextMessages(), ...this.history.slice(-16)] }),
+        body: JSON.stringify({ messages: this.requestMessages() }),
         signal: ac.signal,
       });
       if (!resp.ok || !resp.body) throw new Error("chat-voice " + resp.status);
