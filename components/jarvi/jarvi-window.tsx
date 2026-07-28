@@ -62,6 +62,7 @@ export function JarviWindow() {
   };
 
   const stop = () => engineRef.current?.stop();
+  const startZnanieLecture = () => engineRef.current?.startZnanieLecture();
 
   const running = state !== "off" && state !== "sleeping" && state !== "denied";
 
@@ -125,18 +126,31 @@ export function JarviWindow() {
             {state === "sleeping" ? "Мозг спит — повторить" : state === "denied" ? "Разрешите микрофон" : "Поговорить с Джарви"}
           </button>
         ) : (
-          <button
-            onClick={stop}
-            className="cursor-pointer transition-all active:scale-[0.96]"
-            style={{
-              fontSize: 10, letterSpacing: "0.25em", textTransform: "uppercase",
-              padding: "7px 18px", borderRadius: 6,
-              color: "rgba(245,241,232,0.7)", background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(201,169,97,0.3)",
-            }}
-          >
-            Завершить
-          </button>
+          <>
+            <button
+              onClick={startZnanieLecture}
+              className="cursor-pointer transition-all active:scale-[0.96]"
+              style={{
+                fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+                padding: "7px 14px", borderRadius: 6,
+                color: "#0a0a0a", background: "#C9A961", border: "1px solid #C9A961",
+              }}
+            >
+              Лекция «Знание»
+            </button>
+            <button
+              onClick={stop}
+              className="cursor-pointer transition-all active:scale-[0.96]"
+              style={{
+                fontSize: 10, letterSpacing: "0.25em", textTransform: "uppercase",
+                padding: "7px 18px", borderRadius: 6,
+                color: "rgba(245,241,232,0.7)", background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(201,169,97,0.3)",
+              }}
+            >
+              Завершить
+            </button>
+          </>
         )}
       </div>
 

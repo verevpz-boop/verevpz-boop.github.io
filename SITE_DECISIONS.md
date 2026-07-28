@@ -347,3 +347,6 @@ Bake-off Silero eugene vs aidar vs женский (Pavel выбирает гол
   `E:\Projects\voice-bot-demo\venv\Scripts\python.exe scripts\generate-znanie-audio.py`.
 - Проверено: TypeScript, ESLint изменённого движка, production build, восемь HTTP-ассетов,
   обратная транскрипция всех глав и загрузка `/ai-bots/` в браузере без ошибок.
+- 2026-07-28 после полевой тревоги Pavel исправлена мобильная мина: AudioContext теперь
+  создаётся до первого `await`, пока живо разрешение стартового касания. Добавлена
+  резервная кнопка «Лекция „Знание“» после запуска голосового контура.

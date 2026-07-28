@@ -336,6 +336,14 @@ export class JarviEngine {
 
   getState() { return this.state; }
 
+  /** Ручной резервный запуск из UI — тот же режим, что голосовая команда. */
+  startZnanieLecture(): void {
+    if (this.state === "off" || this.state === "sleeping" || this.state === "denied") return;
+    this.llmAbort?.abort();
+    this.stopSpeech();
+    void this.startLecture();
+  }
+
   private setState(s: JarviState) {
     if (this.state === s) return;
     this.trace("state " + this.state + "→" + s);
@@ -404,26 +412,29 @@ export class JarviEngine {
   async start(): Promise<void> {
     if (this.state !== "off" && this.state !== "sleeping" && this.state !== "denied") return;
 
-    // конфиг → база прокси + проверка мозга (и прогрев TLS)
-    if (!(await this.resolveBrain())) { this.hearWanted = true; this.goSleep(); return; }
-
-    // AudioContext создаём ВНУТРИ жеста (иначе suspended). Он нужен не только
-    // живому TTS, но и готовым лекциям с паузой/продолжением и липсинком.
-    this.voiceMode = this.cfgVoice;
+    // КРИТИЧНО ДЛЯ МОБИЛЫ: разблокируем WebAudio и браузерный TTS ДО первого await.
+    // После сетевой проверки transient user activation на iOS/Android уже может исчезнуть.
     try {
       const Ctor = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
       this.audioCtx = new Ctor();
       this.analyser = this.audioCtx.createAnalyser();
       this.analyser.fftSize = 512;
       this.analyser.connect(this.audioCtx.destination);
-      await this.audioCtx.resume();
-    } catch { this.voiceMode = "browser"; this.audioCtx = null; this.analyser = null; }
-
-    // разблокировка speechSynthesis внутри жеста (нужна и как фоллбэк живого режима)
+      void this.audioCtx.resume();
+    } catch { this.audioCtx = null; this.analyser = null; }
     try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
     this.pickVoice();
     if (typeof speechSynthesis !== "undefined" && speechSynthesis.onvoiceschanged === null)
       speechSynthesis.onvoiceschanged = () => this.pickVoice();
+
+    // Теперь можно ждать сеть: проигрыватель уже создан непосредственно в обработчике касания.
+    if (!(await this.resolveBrain())) {
+      this.hearWanted = true;
+      this.goSleep();
+      return;
+    }
+    this.voiceMode = this.audioCtx ? this.cfgVoice : "browser";
+    try { await this.audioCtx?.resume(); } catch {}
 
     // эхоочищенный микрофон: ДЕРЖИМ поток открытым, его же кормим VAD'у.
     // echoCancellation вычитает голос Джарви (он играет через WebAudio) → петля
