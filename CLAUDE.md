@@ -11,7 +11,7 @@
 ## Project
 **Path:** D:\pavel-site  
 **Goal:** Awwwards-tier portfolio for AI-Creator Pavel Zverev  
-**Contact:** Telegram @Verevpz  
+**Contact:** Telegram @Pavel4417 (старый @Verevpz — совсем резервный, нигде не использовать)  
 **Live:** https://verevpz-boop.github.io/ (GitHub Pages, auto-deploy on push to master)
 
 ## Stack
@@ -29,7 +29,7 @@
 | Off-white | `#F5F1E8` |
 
 ## Done (2026-05-03)
-- Hero section merged with Globe: single 100vh screen — "NAVIGATE THE WORLDS" top, 3D globe center, "Pavel Zverev / @Verevpz" bottom
+- Hero section merged with Globe: single 100vh screen — "NAVIGATE THE WORLDS" top, 3D globe center, "Pavel Zverev / @Pavel4417" bottom
 - 3D Globe navigation: Earth (radius 4.5, night texture with city lights) + 5 satellite orbits
 - Satellites: FASHION (orbit 15.75), TECH (11.25), CINEMA (13.5), GAMING (9), AI-BOTS (18)
 - Video satellites: `lookAt(camera) + rotateY(-Math.PI/2)` keeps video front-facing; `meshBasicMaterial` for self-lit display

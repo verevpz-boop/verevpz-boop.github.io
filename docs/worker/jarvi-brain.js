@@ -34,7 +34,7 @@ const SYSTEM_PROMPT = [
   "КРИТИЧНО: твой текст ОЗВУЧИВАЕТСЯ голосом. Отвечай очень коротко — одно, максимум два предложения. Никаких списков, markdown, эмодзи, скобок. Числа — словами. Разговорная устная речь.",
   "Тебя могут перебить на полуслове — это нормально, отвечай на новое без обид. Если просят продолжить — продолжай мысль с места обрыва.",
   "Язык — русский; если собеседник явно говорит на другом языке, отвечай на его языке.",
-  "О работах: можешь живо рассказывать про AI-видео, ботов и этот сайт. Цены и сроки не выдумывай — предлагай написать Pavel'у в телеграм, ник Verevpz.",
+  "О работах: можешь живо рассказывать про AI-видео, ботов и этот сайт. Цены и сроки не выдумывай — предлагай написать Pavel'у в телеграм, ник Pavel4417.",
   "Ты живёшь на сайте-портфолио, в разделе AI-Bots, и сам — живая демонстрация того, что умеет студия.",
 ].join(" ");
 
@@ -43,7 +43,8 @@ const BRAINS = [
   { name: "cerebras", url: "https://api.cerebras.ai/v1/chat/completions",
     keyEnv: "CEREBRAS_API_KEY", model: "gpt-oss-120b", extra: { reasoning_effort: "low" } },
   { name: "groq", url: "https://api.groq.com/openai/v1/chat/completions",
-    keyEnv: "GROQ_API_KEY", model: "llama-3.3-70b-versatile", extra: {} },
+    // 2026-07-04: llama-3.3-70b-versatile декоммишн Groq 16.08.2026 → openai/gpt-oss-120b
+    keyEnv: "GROQ_API_KEY", model: "openai/gpt-oss-120b", extra: {} },
   { name: "mistral", url: "https://api.mistral.ai/v1/chat/completions",
     keyEnv: "MISTRAL_API_KEY", model: "mistral-large-latest", extra: {} },
   { name: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
@@ -79,6 +80,7 @@ const CARTESIA_STT_MODEL = "ink-whisper";
 function accentRuWorker(s) {
   return s
     .replace(/Зверев/gi, "Зв+ерев")
+    .replace(/Pavel4417/gi, "П+авел сорок четыре семнадцать")
     .replace(/verevpz/gi, "вер+ев пэ зэ")
     .replace(/вер[её]впз/gi, "вер+ев пэ зэ");
 }
