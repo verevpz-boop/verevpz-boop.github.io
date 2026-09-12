@@ -47,6 +47,7 @@ export const R2_VIDEOS = {
   warEpic: r2("cinema/war-epic-0429.mp4"),
   streetFight: r2("cinema/streetfight_01.mp4"),
   battle: r2("cinema/battle_01.mp4"),
+  lumiere: r2("cinema/lumiere_01.mp4"),
 
   /* ── Animation (AI-мультсериал «Шифу Учит», вертикаль 9:16) ───────────── */
   animMuha: r2("animation/muha_01.mp4"),
@@ -123,6 +124,7 @@ export const POSTERS = {
   warEpic: "/posters/war_epic_0429.jpg",
   streetFight: "/posters/streetfight.jpg",
   battle: "/posters/battle.jpg",
+  lumiere: "/posters/lumiere.jpg",
   animMuha: "/posters/animation/muha.jpg",
   animKungfu: "/posters/animation/kungfu.jpg",
   animTianxia: "/posters/animation/tianxia.jpg",
