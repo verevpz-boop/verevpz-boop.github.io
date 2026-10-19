@@ -16,6 +16,42 @@ export default function GamingPage() {
     >
       <div className="mx-auto grid max-w-4xl gap-8 md:gap-12">
         <ShowcaseVideo
+          src={R2_VIDEOS.orki01}
+          poster={POSTERS.orki01}
+          aspect="4/3"
+          caption="Orcs, part 1 — battle in Mordor (1.3M views)"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.orki02}
+          poster={POSTERS.orki02}
+          aspect="4/3"
+          caption="Orcs, part 2 — fantasy fight"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.orki03}
+          poster={POSTERS.orki03}
+          aspect="4/3"
+          caption="Orcs, part 3 — the brawl"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.orki04}
+          poster={POSTERS.orki04}
+          aspect="4/3"
+          caption="Orcs, part 4"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.raidWaterfall}
+          poster={POSTERS.raidWaterfall}
+          aspect="16/9"
+          caption="RAID — waterfall, 60p"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.raidDuel}
+          poster={POSTERS.raidDuel}
+          aspect="4/3"
+          caption="RAID — canyon duel"
+        />
+        <ShowcaseVideo
           src={R2_VIDEOS.reign}
           poster={POSTERS.reign}
           aspect="16/9"

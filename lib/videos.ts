@@ -48,6 +48,19 @@ export const R2_VIDEOS = {
   streetFight: r2("cinema/streetfight_01.mp4"),
   battle: r2("cinema/battle_01.mp4"),
   lumiere: r2("cinema/lumiere_01.mp4"),
+  // 2026-10-19 — новые мастера (ревизия Pavel'а)
+  halloween: r2("cinema/halloween_01.mp4"),
+  samuraiS2: r2("cinema/samurai_s2_01.mp4"),
+  samuraiS3: r2("cinema/samurai_s3_01.mp4"),
+  angel: r2("cinema/angel_01.mp4"),
+  bedroomFight: r2("cinema/bedroom_fight_01.mp4"),
+  cosmicBattle: r2("cinema/cosmic_battle_01.mp4"),
+  hedjSiroi: r2("cinema/hedj_siroi_01.mp4"),
+  hedjSkali: r2("cinema/hedj_skali_01.mp4"),
+  starmoyHorror: r2("cinema/starmoy_horror_01.mp4"),
+  soskuchilsya: r2("cinema/soskuchilsya_01.mp4"),
+  crowd: r2("cinema/crowd_01.mp4"),
+  chas: r2("cinema/chas_01.mp4"),
 
   /* ── Animation (AI-мультсериал «Шифу Учит», вертикаль 9:16) ───────────── */
   animMuha: r2("animation/muha_01.mp4"),
@@ -57,14 +70,32 @@ export const R2_VIDEOS = {
   animBaoen: r2("animation/baoen_01.mp4"),
   animHeng: r2("animation/heng_01.mp4"),
   animMing: r2("animation/ming_01.mp4"),
+  animShifu08: r2("animation/shifu_08_01.mp4"),
+  animShifu09: r2("animation/shifu_09_01.mp4"),
+  animOtter: r2("animation/otter_01.mp4"),
+  animKungfuSchool: r2("animation/kungfu_school_01.mp4"),
+  animMapSamurai: r2("animation/map_samurai_01.mp4"),
 
   /* ── Gaming ─────────────────────────────────────────────────────────── */
   raidMasterfinal: r2("gaming/raid_masterfinal.mp4"),
   smeh0424gaming: r2("gaming/smeh_0424_2.mp4"),
   jimengWarriorsGaming: r2("gaming/jimeng_warriors_01.mp4"),
+  orki01: r2("gaming/orki_01_01.mp4"),
+  orki02: r2("gaming/orki_02_01.mp4"),
+  orki03: r2("gaming/orki_03_01.mp4"),
+  orki04: r2("gaming/orki_04_01.mp4"),
+  raidWaterfall: r2("gaming/raid_waterfall_01.mp4"),
+  raidDuel: r2("gaming/raid_duel_01.mp4"),
+
+  /* ── Fashion (2026-10-19) ───────────────────────────────────────────── */
+  cloudCat: r2("fashion/cloud_cat_01.mp4"),
 
   /* ── Tech ───────────────────────────────────────────────────────────── */
   maldivesHotel: r2("tech/maldives_hotel_01.mp4"),
+  ferrari: r2("tech/ferrari_01.mp4"),
+  driver4k: r2("tech/driver_4k_01.mp4"),
+  girlRobot: r2("tech/girl_robot_01.mp4"),
+  skoraya60p: r2("tech/skoraya_60p_01.mp4"),
 
   /* ── TikTok (на странице TikTok висит ТОЛЬКО эта категория) ──────────── */
   smeh100: r2("tiktok/smeh_100.mp4"),
@@ -79,6 +110,8 @@ export const R2_VIDEOS = {
   export0514: r2("tiktok/export-0514-2.mp4"),
   v3: r2("tiktok/v3.mp4"),
   racingSpeeders: r2("tiktok/racing-speeders.mp4"), // «смех→TikTok» (ждёт подтверждения Pavel)
+  nakedSamurai: r2("tiktok/naked_samurai_01.mp4"),
+  tusiTusi: r2("tiktok/tusi_tusi_01.mp4"),
 } as const;
 
 export type R2VideoKey = keyof typeof R2_VIDEOS;
@@ -132,4 +165,33 @@ export const POSTERS = {
   animBaoen: "/posters/animation/baoen.jpg",
   animHeng: "/posters/animation/heng.jpg",
   animMing: "/posters/animation/ming.jpg",
+  // 2026-10-19 — новые мастера
+  halloween: "/posters/halloween.jpg",
+  samuraiS2: "/posters/samurai_s2.jpg",
+  samuraiS3: "/posters/samurai_s3.jpg",
+  angel: "/posters/angel.jpg",
+  bedroomFight: "/posters/bedroom_fight.jpg",
+  cosmicBattle: "/posters/cosmic_battle.jpg",
+  hedjSiroi: "/posters/hedj_siroi.jpg",
+  hedjSkali: "/posters/hedj_skali.jpg",
+  starmoyHorror: "/posters/starmoy_horror.jpg",
+  soskuchilsya: "/posters/soskuchilsya.jpg",
+  crowd: "/posters/crowd.jpg",
+  chas: "/posters/chas.jpg",
+  orki01: "/posters/orki_01.jpg",
+  orki02: "/posters/orki_02.jpg",
+  orki03: "/posters/orki_03.jpg",
+  orki04: "/posters/orki_04.jpg",
+  raidWaterfall: "/posters/raid_waterfall.jpg",
+  raidDuel: "/posters/raid_duel.jpg",
+  cloudCat: "/posters/cloud_cat.jpg",
+  ferrari: "/posters/ferrari.jpg",
+  driver4k: "/posters/driver_4k.jpg",
+  girlRobot: "/posters/girl_robot.jpg",
+  skoraya60p: "/posters/skoraya_60p.jpg",
+  animShifu08: "/posters/animation/shifu_08.jpg",
+  animShifu09: "/posters/animation/shifu_09.jpg",
+  animOtter: "/posters/animation/otter.jpg",
+  animKungfuSchool: "/posters/animation/kungfu_school.jpg",
+  animMapSamurai: "/posters/animation/map_samurai.jpg",
 } as const;

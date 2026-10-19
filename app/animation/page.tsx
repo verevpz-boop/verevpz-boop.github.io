@@ -57,6 +57,36 @@ export default function AnimationPage() {
           aspect="9/16"
           caption="Шифу Учит — серия 7: 明 «Ходит вокруг»"
         />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animShifu08}
+          poster={POSTERS.animShifu08}
+          aspect="9/16"
+          caption="Шифу Учит — серия 8: 责任 «Мама?»"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animShifu09}
+          poster={POSTERS.animShifu09}
+          aspect="9/16"
+          caption="Шифу Учит — серия 9: 学 «Сон воина»"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animKungfuSchool}
+          poster={POSTERS.animKungfuSchool}
+          aspect="9/16"
+          caption="Шифу Учит — школа кунг-фу"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animOtter}
+          poster={POSTERS.animOtter}
+          aspect="9/16"
+          caption="Шифу Учит — выдра"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animMapSamurai}
+          poster={POSTERS.animMapSamurai}
+          aspect="16/9"
+          caption="Мультик как карта — самурай"
+        />
       </div>
     </SectionShell>
   );

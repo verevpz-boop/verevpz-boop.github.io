@@ -28,25 +28,27 @@ const ROWS: {
     title: "Cinema",
     href: "/cinema",
     posters: [
-      "/posters/reign.jpg",
-      "/posters/master_dynamic.jpg",
-      "/posters/mishanya_master.jpg",
+      "/posters/halloween.jpg",
+      "/posters/samurai_s3.jpg",
+      "/posters/cosmic_battle.jpg",
     ],
   },
   {
     title: "Gaming",
     href: "/gaming",
     posters: [
-      "/posters/raid_masterfinal.jpg",
-      "/posters/jimeng_warriors.jpg",
-      "/posters/smeh_0424.jpg",
+      "/posters/orki_02.jpg",
+      "/posters/raid_waterfall.jpg",
+      "/posters/orki_01.jpg",
     ],
   },
   {
     title: "Tech",
     href: "/tech",
     posters: [
-      "/posters/maldives_hotel.jpg",
+      "/posters/driver_4k.jpg",
+      "/posters/ferrari.jpg",
+      "/posters/girl_robot.jpg",
     ],
   },
   {
@@ -54,9 +56,9 @@ const ROWS: {
     href: "/animation",
     tall: true,
     posters: [
-      "/posters/animation/muha.jpg",
-      "/posters/animation/kungfu.jpg",
-      "/posters/animation/tianxia.jpg",
+      "/posters/animation/shifu_08.jpg",
+      "/posters/animation/shifu_09.jpg",
+      "/posters/animation/kungfu_school.jpg",
     ],
   },
   {

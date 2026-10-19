@@ -16,6 +16,12 @@ export default function FashionPage() {
     >
       <div className="mx-auto grid max-w-4xl gap-8 md:gap-12">
         <ShowcaseVideo
+          src={R2_VIDEOS.cloudCat}
+          poster={POSTERS.cloudCat}
+          aspect="16/9"
+          caption="Cloud Cat — campaign"
+        />
+        <ShowcaseVideo
           src={R2_VIDEOS.calvinKlein}
           poster={POSTERS.calvinKlein}
           aspect="16/9"
@@ -38,12 +44,6 @@ export default function FashionPage() {
           poster={POSTERS.incanto0404}
           aspect="9/16"
           caption="Incanto — swimwear campaign"
-        />
-        <ShowcaseVideo
-          src={R2_VIDEOS.incantoCentr}
-          poster={POSTERS.incantoCentr}
-          aspect="9/16"
-          caption="Incanto — studio showcase"
         />
         <ShowcaseVideo
           src={R2_VIDEOS.creationPolic4}

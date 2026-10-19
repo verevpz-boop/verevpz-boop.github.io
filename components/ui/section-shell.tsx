@@ -78,8 +78,8 @@ export function SectionShell({
 
 interface ShowcaseVideoProps {
   src: string;
-  /** "16/9" landscape or "9/16" vertical */
-  aspect?: "16/9" | "9/16";
+  /** "16/9" / "4/3" landscape, "9/16" vertical, "4/5" portrait (IG-кадр) */
+  aspect?: "16/9" | "4/3" | "9/16" | "4/5";
   caption?: string;
   /** Постер (первый кадр) — виден, пока видео грузится: вместо чёрного поля. */
   poster?: string;
@@ -155,6 +155,14 @@ export function ShowcaseVideo({
   // Вертикальные 9:16 ограничиваем по ширине и центрируем — иначе на всю
   // ширину контейнера они выходят гигантскими. Горизонтальные 16:9 — во всю ширину.
   const isVertical = aspect === "9/16";
+  // 4:3 и 4:5 во всю ширину выходят слишком высокими — тоже центрируем с потолком.
+  const widthClass = isVertical
+    ? "mx-auto w-full max-w-[400px]"
+    : aspect === "4/5"
+      ? "mx-auto w-full max-w-[520px]"
+      : aspect === "4/3"
+        ? "mx-auto w-full max-w-[720px]"
+        : "w-full";
   // Слой В: автоплей в ленте идёт ЛЁГКИМ превью (480p, пролезает в слабый
   // канал). Полный 1080p цепляется по клику или onError-фоллбэком, если
   // превью ещё не залито на R2. hqRef=true — этот ролик уже на полном файле.
@@ -350,7 +358,7 @@ export function ShowcaseVideo({
       ref={figureRef}
       onClick={playFromStart}
       className={`group relative cursor-pointer overflow-hidden rounded-sm border border-[#C9A961]/25 bg-black/40 ${
-        isVertical ? "mx-auto w-full max-w-[400px]" : "w-full"
+        widthClass
       }`}
     >
       <video

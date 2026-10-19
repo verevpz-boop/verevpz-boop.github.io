@@ -20,12 +20,14 @@ const MODEL = "/models/bearbrick.glb.glb";
 
 // Постеры TikTok-клипов для орбитальных плиток (public/posters/tiktok).
 const PLATE_POSTERS = [
+  "/posters/tiktok/naked_samurai.jpg",
+  "/posters/tiktok/tusi_tusi.jpg",
   "/posters/tiktok/golos.jpg",
   "/posters/tiktok/smeh_100.jpg",
-  "/posters/tiktok/face_01.jpg",
-  "/posters/tiktok/iceland_master.jpg",
+  "/posters/tiktok/smeh_0401_2.jpg",
+  "/posters/tiktok/creation_polic4.jpg",
   "/posters/tiktok/material-woman.jpg",
-  "/posters/tiktok/v3.jpg",
+  "/posters/tiktok/export-0514-2.jpg",
   "/posters/tiktok/racing-speeders.jpg",
 ];
 

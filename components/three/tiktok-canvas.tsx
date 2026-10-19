@@ -41,17 +41,19 @@ type Source =
 // poster = первый кадр (public/posters/tiktok) — плитка живёт постером,
 // видео-src вешается ТОЛЬКО когда плитка попадает в активные слоты.
 const _videos: Source[] = [
+  { type: "video" as const, src: R2_VIDEOS.nakedSamurai, poster: "/posters/tiktok/naked_samurai.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.tusiTusi, poster: "/posters/tiktok/tusi_tusi.jpg" },
+  // двойное назначение (как materialWoman): вертикальные рилсы из Cinema/Tech
+  { type: "video" as const, src: R2_VIDEOS.angel, poster: "/posters/tiktok/angel.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.bedroomFight, poster: "/posters/tiktok/bedroom_fight.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.starmoyHorror, poster: "/posters/tiktok/starmoy_horror.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.ferrari, poster: "/posters/tiktok/ferrari.jpg" },
+  { type: "video" as const, src: R2_VIDEOS.girlRobot, poster: "/posters/tiktok/girl_robot.jpg" },
   { type: "video" as const, src: R2_VIDEOS.smeh100, poster: "/posters/tiktok/smeh_100.jpg" },
-  { type: "video" as const, src: R2_VIDEOS.icelandMaster, poster: "/posters/tiktok/iceland_master.jpg" },
-  { type: "video" as const, src: R2_VIDEOS.islandMaster, poster: "/posters/tiktok/island_master.jpg" },
   { type: "video" as const, src: R2_VIDEOS.smeh0401, poster: "/posters/tiktok/smeh_0401_2.jpg" },
-  { type: "video" as const, src: R2_VIDEOS.smeh0424tiktok, poster: "/posters/tiktok/smeh_0424_2.jpg" },
-  { type: "video" as const, src: R2_VIDEOS.face01, poster: "/posters/tiktok/face_01.jpg" },
-  { type: "video" as const, src: R2_VIDEOS.openartTiktok, poster: "/posters/tiktok/openart_tiktok_01.jpg" },
   { type: "video" as const, src: R2_VIDEOS.creationPolic4Tiktok, poster: "/posters/tiktok/creation_polic4.jpg" },
   { type: "video" as const, src: R2_VIDEOS.golos, poster: "/posters/tiktok/golos.jpg" },
   { type: "video" as const, src: R2_VIDEOS.export0514, poster: "/posters/tiktok/export-0514-2.jpg" },
-  { type: "video" as const, src: R2_VIDEOS.v3, poster: "/posters/tiktok/v3.jpg" },
   { type: "video" as const, src: R2_VIDEOS.materialWoman, poster: "/posters/tiktok/material-woman.jpg" },
   { type: "video" as const, src: R2_VIDEOS.racingSpeeders, poster: "/posters/tiktok/racing-speeders.jpg" },
 ];

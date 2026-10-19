@@ -8,10 +8,10 @@ export const metadata = {
 
 const ITEMS: { label: string; href: string; poster: string; tall?: boolean }[] = [
   { label: "Fashion", href: "/fashion", poster: "/posters/calvin_klein.jpg" },
-  { label: "Cinema", href: "/cinema", poster: "/posters/reign.jpg" },
-  { label: "Gaming", href: "/gaming", poster: "/posters/raid_masterfinal.jpg" },
-  { label: "Tech", href: "/tech", poster: "/posters/maldives_hotel.jpg" },
-  { label: "Animation", href: "/animation", poster: "/posters/animation/tianxia.jpg" },
+  { label: "Cinema", href: "/cinema", poster: "/posters/halloween.jpg" },
+  { label: "Gaming", href: "/gaming", poster: "/posters/orki_02.jpg" },
+  { label: "Tech", href: "/tech", poster: "/posters/driver_4k.jpg" },
+  { label: "Animation", href: "/animation", poster: "/posters/animation/shifu_08.jpg" },
   // TikTok — отдельной плиткой-мишкой ниже (TikTokMiniTile), не постером.
 ];
 

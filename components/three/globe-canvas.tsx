@@ -40,6 +40,7 @@ const SATELLITES = [
     initialAngle: 2.5,
     href: "/cinema",
     description: "AI-кино и актёрские сцены",
+    videoSrc: "/videos/satellites/cinema.webm",
   },
   {
     name: "FASHION",
