@@ -16,6 +16,24 @@ export default function CinemaPage() {
     >
       <div className="mx-auto grid max-w-4xl gap-8 md:gap-12">
         <ShowcaseVideo
+          src={R2_VIDEOS.konnitsa}
+          poster={POSTERS.konnitsa}
+          aspect="16/9"
+          caption="Cavalry: knights under fire"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.gangsta}
+          poster={POSTERS.gangsta}
+          aspect="16/9"
+          caption="Gangsta: armored-car shootout"
+        />
+        <ShowcaseVideo
+          src={R2_VIDEOS.animMapSamurai}
+          poster={POSTERS.animMapSamurai}
+          aspect="16/9"
+          caption="Мультик как карта — самурай"
+        />
+        <ShowcaseVideo
           src={R2_VIDEOS.cosmicBattle}
           poster={POSTERS.cosmicBattle}
           aspect="4/5"

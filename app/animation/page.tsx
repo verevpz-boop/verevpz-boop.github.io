@@ -81,12 +81,6 @@ export default function AnimationPage() {
           aspect="9/16"
           caption="Шифу Учит — выдра"
         />
-        <ShowcaseVideo
-          src={R2_VIDEOS.animMapSamurai}
-          poster={POSTERS.animMapSamurai}
-          aspect="16/9"
-          caption="Мультик как карта — самурай"
-        />
       </div>
     </SectionShell>
   );

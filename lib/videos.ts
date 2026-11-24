@@ -61,6 +61,9 @@ export const R2_VIDEOS = {
   soskuchilsya: r2("cinema/soskuchilsya_01.mp4"),
   crowd: r2("cinema/crowd_01.mp4"),
   chas: r2("cinema/chas_01.mp4"),
+  // 2026-11-24 — последние работы Pavel'а
+  konnitsa: r2("cinema/konnitsa_01.mp4"),
+  gangsta: r2("cinema/gangsta_01.mp4"),
 
   /* ── Animation (AI-мультсериал «Шифу Учит», вертикаль 9:16) ───────────── */
   animMuha: r2("animation/muha_01.mp4"),
@@ -178,6 +181,8 @@ export const POSTERS = {
   soskuchilsya: "/posters/soskuchilsya.jpg",
   crowd: "/posters/crowd.jpg",
   chas: "/posters/chas.jpg",
+  konnitsa: "/posters/konnitsa.jpg",
+  gangsta: "/posters/gangsta.jpg",
   orki01: "/posters/orki_01.jpg",
   orki02: "/posters/orki_02.jpg",
   orki03: "/posters/orki_03.jpg",
